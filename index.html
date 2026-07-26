@@ -245,6 +245,7 @@
   .att-ic{flex-shrink:0}
   .att-name{flex:1;color:var(--brand);cursor:pointer;text-decoration:underline;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .att-del{background:none;border:none;color:var(--muted);font-size:1.15rem;cursor:pointer;padding:0 4px;line-height:1}
+  .files-chip{color:var(--brand);font-weight:600;cursor:pointer;background:var(--brand-l);padding:1px 8px;border-radius:20px}
   /* overview status cards */
   .stat-row{display:flex;justify-content:space-between;align-items:baseline;padding:2px 0}
   .stat-row .k{font-size:.85rem;color:var(--muted)}
@@ -417,7 +418,7 @@ function openAttachment(fid){
 function deleteAttachment(fid){ if(filesRef)filesRef.child(fid).remove(); }
 function pushCloud(){ if(fbRef && !VIEW){ try{ fbRef.set(JSON.parse(JSON.stringify(data))); }catch(e){ console.warn('cloud push failed',e); } } }
 function fixArrays(d){ d.items=d.items||[]; d.categories=d.categories||[];
-  d.categories.forEach(c=>{ if(c.parts&&!Array.isArray(c.parts))c.parts=Object.values(c.parts); });
+  d.categories.forEach(c=>{ if(c.parts&&!Array.isArray(c.parts))c.parts=Object.values(c.parts); if(c.files&&!Array.isArray(c.files))c.files=Object.values(c.files); });
   d.items.forEach(i=>{ if(i.files&&!Array.isArray(i.files))i.files=Object.values(i.files); });
   return d; }
 function initCloud(){
@@ -807,9 +808,9 @@ function renderCats(){
       else if(st==='partial')statusPill=`<span class="pill partial">${clampPct(it.paidPct)}% שולם</span>`;
       else if(st==='plan')statusPill='<span class="pill plan">מתוכנן</span>';
       const atKey=it.due&&it.due===data.project.keyDate;
-      const filesTxt=(it.files&&it.files.length)?'📎 '+it.files.length:'';
       const dueBase=it.due?(atKey?'📅 בקבלת מפתח · ':'📅 ')+'<span class="num">'+fmtDate(it.due)+'</span>':'';
-      const dueTxt=[dueBase,filesTxt].filter(Boolean).join(' · ');
+      const filesChip=(it.files&&it.files.length)?`<span class="files-chip" data-files="${it.id}">📎 ${it.files.length} קבצים</span>`:'';
+      const supInner=[dueBase,filesChip].filter(Boolean).join(' · ');
       const showRem=st!=='paid'&&(+it.total>0);
       let mini;
       if(st==='paid')mini=statusPill;
@@ -819,7 +820,7 @@ function renderCats(){
         ${st==='paid'?'<div class="ok">✓</div>':''}
         <div class="item-info">
           <div class="item-desc">${esc(it.desc||'ללא תיאור')}</div>
-          ${dueTxt?`<div class="item-sup">${dueTxt}</div>`:''}
+          ${supInner?`<div class="item-sup">${supInner}</div>`:''}
           ${mini?`<div class="item-mini">${mini}</div>`:''}
         </div>
         <div class="item-amt">
@@ -848,7 +849,7 @@ function renderCats(){
       <div class="cat-head" data-toggle>
         <div class="cat-ic" style="background:${c.color}22;color:${c.color}">${c.icon||'📦'}</div>
         <div class="cat-info">
-          <div class="cat-name">${esc(c.name)}${c.included?'<span class="cat-inc">כלול ברכישה</span>':''}${(!c.included&&ct.total>0&&ct.remain<=0)?'<span class="cat-ok">✓ שולם</span>':''}</div>
+          <div class="cat-name">${esc(c.name)}${c.included?'<span class="cat-inc">כלול ברכישה</span>':''}${(!c.included&&ct.total>0&&ct.remain<=0)?'<span class="cat-ok">✓ שולם</span>':''}${(c.files&&c.files.length)?`<span class="files-chip" data-catfiles="${c.id}">📎 ${c.files.length}</span>`:''}</div>
           ${budgetLine}
         </div>
         <div class="cat-amt"><div class="t num">${money(ct.total)}</div><div class="p">${ct.remain>0?'נותר '+money(ct.remain):(ct.total>0?'✓ שולם':'')}</div></div>
@@ -869,6 +870,16 @@ function renderCats(){
   el.querySelectorAll('[data-addcat]').forEach(b=>b.onclick=e=>{e.stopPropagation();openItem(null,b.dataset.addcat)});
   el.querySelectorAll('[data-editcat]').forEach(b=>b.onclick=e=>{e.stopPropagation();openCatEdit(b.dataset.editcat)});
   el.querySelectorAll('[data-mv]').forEach(b=>b.onclick=e=>{e.stopPropagation();moveCat(b.dataset.id,b.dataset.mv==='up'?-1:1);});
+  el.querySelectorAll('[data-files]').forEach(b=>b.onclick=e=>{e.stopPropagation();const it=data.items.find(i=>i.id===b.dataset.files);if(it)openFilesList(it.desc,it.files);});
+  el.querySelectorAll('[data-catfiles]').forEach(b=>b.onclick=e=>{e.stopPropagation();const c=data.categories.find(x=>x.id===b.dataset.catfiles);if(c)openFilesList(c.name,c.files);});
+}
+// צפייה בקבצים (זמין גם במצב צפייה בלבד — לאשתך)
+function openFilesList(title,files){
+  if(!files||!files.length)return;
+  sheet(`<h3>📎 קבצים — ${esc(title||'')}</h3>
+    <div class="att-list">${files.map(f=>`<div class="att"><span class="att-ic">${(f.type||'').indexOf('image/')===0?'🖼️':'📄'}</span><span class="att-name" data-openf="${f.id}">${esc(f.name||'קובץ')}</span></div>`).join('')}</div>
+    <p class="hint" style="margin-top:10px">הקש על שם קובץ כדי לפתוח/להוריד.</p>`);
+  $('#sheet').querySelectorAll('[data-openf]').forEach(b=>b.onclick=()=>openAttachment(b.dataset.openf));
 }
 
 let catChart,flowChart;
@@ -1237,26 +1248,27 @@ function openItem(id,presetCat){
   };
   if(id)$('#fDel').onclick=()=>{if(confirm('למחוק את אבן הדרך?')){data.items=data.items.filter(i=>i.id!==id);close();save();toast('נמחק');}};
 }
-// צירוף קבצים לאבן דרך — צילום מהנייד או העלאת קובץ
-function renderItemFiles(it){
-  const el=$('#filesSection'); if(!el)return;
-  if(!filesRef){el.innerHTML='<label>📎 קבצים מצורפים</label><p class="hint">צירוף קבצים זמין בגרסת האתר (עם חיבור לענן).</p>';return;}
-  it.files=it.files||[];
-  const list=it.files.map(f=>`<div class="att"><span class="att-ic">${(f.type||'').indexOf('image/')===0?'🖼️':'📄'}</span><span class="att-name" data-openf="${f.id}">${esc(f.name||'קובץ')}</span>${RO?'':`<button class="att-del" data-delf="${f.id}" type="button">×</button>`}</div>`).join('');
-  el.innerHTML=`<label>📎 קבצים מצורפים (קבלות, אחריות)</label>
+// צירוף קבצים גנרי (לאבן דרך או לקטגוריה) — צילום מהנייד או העלאת קובץ
+function renderItemFiles(it){ renderAttachEditor(it,'#filesSection','קבצים מצורפים (קבלות, אחריות)'); }
+function renderAttachEditor(obj,elId,labelTxt){
+  const el=$(elId); if(!el)return;
+  if(!filesRef){el.innerHTML=`<label>📎 ${labelTxt}</label><p class="hint">צירוף קבצים זמין בגרסת האתר (עם חיבור לענן).</p>`;return;}
+  obj.files=obj.files||[];
+  const list=obj.files.map(f=>`<div class="att"><span class="att-ic">${(f.type||'').indexOf('image/')===0?'🖼️':'📄'}</span><span class="att-name" data-openf="${f.id}">${esc(f.name||'קובץ')}</span>${RO?'':`<button class="att-del" data-delf="${f.id}" type="button">×</button>`}</div>`).join('');
+  el.innerHTML=`<label>📎 ${labelTxt}</label>
     <div class="att-list">${list||'<div class="hint">אין קבצים עדיין</div>'}</div>
     ${RO?'':`<div class="btn-row" style="margin-top:8px">
-      <button class="btn btn-ghost btn-sm" id="attCamBtn" type="button">📷 צלם קבלה</button>
+      <button class="btn btn-ghost btn-sm" id="attCamBtn" type="button">📷 צלם</button>
       <button class="btn btn-ghost btn-sm" id="attFileBtn" type="button">📎 העלה קובץ</button>
     </div>
     <input id="attCam" type="file" accept="image/*" capture="environment" style="display:none">
     <input id="attFile" type="file" accept="image/*,application/pdf" multiple style="display:none">`}`;
   el.querySelectorAll('[data-openf]').forEach(b=>b.onclick=()=>openAttachment(b.dataset.openf));
-  el.querySelectorAll('[data-delf]').forEach(b=>b.onclick=()=>{const fid=b.dataset.delf;it.files=it.files.filter(x=>x.id!==fid);deleteAttachment(fid);saveQuiet();renderItemFiles(it);});
+  el.querySelectorAll('[data-delf]').forEach(b=>b.onclick=()=>{const fid=b.dataset.delf;obj.files=obj.files.filter(x=>x.id!==fid);deleteAttachment(fid);saveQuiet();renderAttachEditor(obj,elId,labelTxt);});
   if(RO)return;
-  const handleFiles=async list=>{const files=[...list];if(!files.length)return;toast('מעלה...');
-    for(const f of files){try{const meta=await uploadAttachment(f);it.files.push(meta);}catch(err){toast(err&&err.message==='too big'?'קובץ גדול מדי (עד ~5MB)':'שגיאה בהעלאה');}}
-    saveQuiet();renderItemFiles(it);toast('נוסף');};
+  const handleFiles=async fl=>{const files=[...fl];if(!files.length)return;toast('מעלה...');
+    for(const f of files){try{const meta=await uploadAttachment(f);obj.files.push(meta);}catch(err){toast(err&&err.message==='too big'?'קובץ גדול מדי (עד ~5MB)':'שגיאה בהעלאה');}}
+    saveQuiet();renderAttachEditor(obj,elId,labelTxt);toast('נוסף');};
   $('#attCamBtn').onclick=()=>$('#attCam').click();
   $('#attFileBtn').onclick=()=>$('#attFile').click();
   $('#attCam').onchange=e=>handleFiles(e.target.files);
@@ -1290,11 +1302,15 @@ function openCat(){
     <label>עלות כוללת מול הספק (₪) — אופציונלי</label>
     <input id="cBudget" type="number" inputmode="numeric" dir="ltr" placeholder="0">
     <p class="hint">העלות בפועל ברגע שיש הצעת מחיר. כל מה שלא שויך לאבן דרך יוצג כ"יתרה לתשלום".</p>
+    <div style="height:1px;background:var(--line);margin:16px 0"></div>
+    <div id="catFiles"></div>
     <button class="btn btn-primary" id="cSave" style="margin-top:18px">הוסף</button>`);
+  const draft={files:[]};
+  renderAttachEditor(draft,'#catFiles','חוזה/הסכם ומסמכים');
   $('#cSave').onclick=()=>{
     const name=$('#cName').value.trim();if(!name){toast('נא להזין שם');return;}
     data.categories.push({id:uid(),name,supplier:$('#cSup').value.trim(),icon:pickedIcon('📦'),zone:pickedZone('in'),
-      color:CAT_COLORS[data.categories.length%CAT_COLORS.length],plan:+$('#cPlan').value||0,budget:+$('#cBudget').value||0});
+      color:CAT_COLORS[data.categories.length%CAT_COLORS.length],plan:+$('#cPlan').value||0,budget:+$('#cBudget').value||0,files:draft.files});
     close();save();toast('נוסף');
   };
 }
@@ -1319,9 +1335,12 @@ function openCatEdit(id){
     <label>מה כלול בהוצאה (תתי-סעיפים) — סמן V לכל רכיב שכבר נלקח בחשבון</label>
     <div id="partsList"></div>
     <div class="part-add"><input id="partNew" dir="auto" placeholder="הוסף רכיב..."><button id="partAddBtn" type="button">＋</button></div>
+    <div style="height:1px;background:var(--line);margin:16px 0"></div>
+    <div id="catFiles"></div>
     <button class="btn btn-primary" id="cSave" style="margin-top:18px">שמור שינויים</button>
     <button class="btn btn-danger btn-sm" id="cDel" style="margin-top:10px">מחק קטגוריה${ct.count?` (וכל ${ct.count} הסעיפים)`:''}</button>`);
   renderPartsEditor(c);
+  renderAttachEditor(c,'#catFiles','חוזה/הסכם ומסמכים');
   $('#partAddBtn').onclick=()=>{const v=$('#partNew').value.trim();if(!v)return;c.parts=c.parts||[];c.parts.push({id:uid(),name:v,done:false});$('#partNew').value='';saveQuiet();renderPartsEditor(c);};
   $('#partNew').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#partAddBtn').click();}};
   $('#cSave').onclick=()=>{
