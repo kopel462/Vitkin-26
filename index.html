@@ -239,6 +239,12 @@
   .part-add{display:flex;gap:6px;margin-top:8px}
   .part-add input{flex:1;padding:9px 11px;font-size:.9rem;border:1.5px solid var(--line);border-radius:10px;font-family:inherit}
   .part-add button{background:var(--brand);color:#fff;border:none;border-radius:10px;width:42px;font-size:1.2rem;cursor:pointer;flex-shrink:0}
+  /* attachments */
+  .att-list{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+  .att{display:flex;align-items:center;gap:9px;background:var(--bg);border-radius:10px;padding:9px 11px;font-size:.88rem}
+  .att-ic{flex-shrink:0}
+  .att-name{flex:1;color:var(--brand);cursor:pointer;text-decoration:underline;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .att-del{background:none;border:none;color:var(--muted);font-size:1.15rem;cursor:pointer;padding:0 4px;line-height:1}
   /* overview status cards */
   .stat-row{display:flex;justify-content:space-between;align-items:baseline;padding:2px 0}
   .stat-row .k{font-size:.85rem;color:var(--muted)}
@@ -385,10 +391,35 @@ let RO=false; // read-only mode
 const FB_CONFIG={apiKey:"AIzaSyC8ShbgBkHxNDtUwbOLDsa4Uqe_AAX7z_k",authDomain:"vitkin26.firebaseapp.com",databaseURL:"https://vitkin26-default-rtdb.firebaseio.com",projectId:"vitkin26",storageBucket:"vitkin26.firebasestorage.app",messagingSenderId:"950356076840",appId:"1:950356076840:web:e4700751013c1c6ecb081d"};
 const CLOUD_PATH='proj_v1_9f3a7c'; // צומת נתונים משותף (אותו נתיב לבעלים ולצפייה)
 let VIEW=/[?&]view=1/.test(location.search); // מצב צפייה בלבד חי (לאשתך)
-let fbRef=null;
-try{ if(window.firebase){ firebase.initializeApp(FB_CONFIG); fbRef=firebase.database().ref(CLOUD_PATH); } }catch(e){ console.warn('firebase init failed',e); }
+let fbRef=null, filesRef=null;
+try{ if(window.firebase){ firebase.initializeApp(FB_CONFIG); fbRef=firebase.database().ref(CLOUD_PATH); filesRef=firebase.database().ref('files_v1_9f3a7c'); } }catch(e){ console.warn('firebase init failed',e); }
+// ---------- קבצים מצורפים (קבלות/אחריות) — נשמרים בענן בנפרד מהנתונים ----------
+function readFileDataURL(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file);});}
+function compressImageDataURL(dataURL,maxDim,q){return new Promise(res=>{const img=new Image();img.onload=()=>{let w=img.width,h=img.height;if(Math.max(w,h)>maxDim){const s=maxDim/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);res(cv.toDataURL('image/jpeg',q));};img.onerror=()=>res(dataURL);img.src=dataURL;});}
+async function uploadAttachment(file){
+  if(!filesRef)throw new Error('no cloud');
+  let dataURL=await readFileDataURL(file);
+  if((file.type||'').indexOf('image/')===0)dataURL=await compressImageDataURL(dataURL,1400,0.7);
+  const approx=Math.round(dataURL.length*0.75);
+  if(approx>6*1024*1024)throw new Error('too big');
+  const fid=uid();
+  await filesRef.child(fid).set({name:file.name,type:file.type||'',data:dataURL});
+  return {id:fid,name:file.name,type:file.type||'',size:approx};
+}
+function openAttachment(fid){
+  if(!filesRef)return;
+  filesRef.child(fid).once('value').then(snap=>{const f=snap.val();if(!f){toast('הקובץ לא נמצא');return;}
+    const a=document.createElement('a');a.href=f.data;a.target='_blank';a.rel='noopener';
+    if((f.type||'').indexOf('image/')!==0)a.download=f.name||'file';
+    document.body.appendChild(a);a.click();a.remove();
+  }).catch(()=>toast('שגיאה בפתיחת הקובץ'));
+}
+function deleteAttachment(fid){ if(filesRef)filesRef.child(fid).remove(); }
 function pushCloud(){ if(fbRef && !VIEW){ try{ fbRef.set(JSON.parse(JSON.stringify(data))); }catch(e){ console.warn('cloud push failed',e); } } }
-function fixArrays(d){ d.items=d.items||[]; d.categories=d.categories||[]; d.categories.forEach(c=>{ if(c.parts&&!Array.isArray(c.parts))c.parts=Object.values(c.parts); }); return d; }
+function fixArrays(d){ d.items=d.items||[]; d.categories=d.categories||[];
+  d.categories.forEach(c=>{ if(c.parts&&!Array.isArray(c.parts))c.parts=Object.values(c.parts); });
+  d.items.forEach(i=>{ if(i.files&&!Array.isArray(i.files))i.files=Object.values(i.files); });
+  return d; }
 function initCloud(){
   if(!fbRef)return;
   if(VIEW){ RO=true;
@@ -776,7 +807,9 @@ function renderCats(){
       else if(st==='partial')statusPill=`<span class="pill partial">${clampPct(it.paidPct)}% שולם</span>`;
       else if(st==='plan')statusPill='<span class="pill plan">מתוכנן</span>';
       const atKey=it.due&&it.due===data.project.keyDate;
-      const dueTxt=it.due?(atKey?'📅 בקבלת מפתח · ':'📅 ')+'<span class="num">'+fmtDate(it.due)+'</span>':'';
+      const filesTxt=(it.files&&it.files.length)?'📎 '+it.files.length:'';
+      const dueBase=it.due?(atKey?'📅 בקבלת מפתח · ':'📅 ')+'<span class="num">'+fmtDate(it.due)+'</span>':'';
+      const dueTxt=[dueBase,filesTxt].filter(Boolean).join(' · ');
       const showRem=st!=='paid'&&(+it.total>0);
       let mini;
       if(st==='paid')mini=statusPill;
@@ -1132,9 +1165,12 @@ function openItem(id,presetCat){
     <div id="amtSection"></div>
     <label>תאריך תשלום / יעד</label>
     <input id="fDue" type="date" dir="ltr" value="${it.due||''}">
+    <div style="height:1px;background:var(--line);margin:16px 0"></div>
+    <div id="filesSection"></div>
     <button class="btn btn-primary" id="fSave" style="margin-top:18px">${id?'שמור שינויים':'הוסף אבן דרך'}</button>
     ${id?'<button class="btn btn-danger btn-sm" id="fDel" style="margin-top:10px">מחק אבן דרך</button>':''}
   `);
+  renderItemFiles(it);
 
   function renderAmt(){
     const cat=data.categories.find(c=>c.id===$('#fCat').value);
@@ -1188,7 +1224,7 @@ function openItem(id,presetCat){
     const cat=data.categories.find(c=>c.id===$('#fCat').value);
     const budget=+(cat&&cat.budget)||0;
     const desc=$('#fDesc').value.trim(); if(!desc){toast('נא להזין תיאור');return;}
-    const base={cat:$('#fCat').value,desc,due:$('#fDue').value,status:'manual'};
+    const base={cat:$('#fCat').value,desc,due:$('#fDue').value,status:'manual',files:it.files||[]};
     let o;
     if($('#amtSection').dataset.mode==='pct'){
       const sh=clampPct($('#fShare').value);
@@ -1200,6 +1236,31 @@ function openItem(id,presetCat){
     close();save();toast(id?'עודכן':'נוסף');
   };
   if(id)$('#fDel').onclick=()=>{if(confirm('למחוק את אבן הדרך?')){data.items=data.items.filter(i=>i.id!==id);close();save();toast('נמחק');}};
+}
+// צירוף קבצים לאבן דרך — צילום מהנייד או העלאת קובץ
+function renderItemFiles(it){
+  const el=$('#filesSection'); if(!el)return;
+  if(!filesRef){el.innerHTML='<label>📎 קבצים מצורפים</label><p class="hint">צירוף קבצים זמין בגרסת האתר (עם חיבור לענן).</p>';return;}
+  it.files=it.files||[];
+  const list=it.files.map(f=>`<div class="att"><span class="att-ic">${(f.type||'').indexOf('image/')===0?'🖼️':'📄'}</span><span class="att-name" data-openf="${f.id}">${esc(f.name||'קובץ')}</span>${RO?'':`<button class="att-del" data-delf="${f.id}" type="button">×</button>`}</div>`).join('');
+  el.innerHTML=`<label>📎 קבצים מצורפים (קבלות, אחריות)</label>
+    <div class="att-list">${list||'<div class="hint">אין קבצים עדיין</div>'}</div>
+    ${RO?'':`<div class="btn-row" style="margin-top:8px">
+      <button class="btn btn-ghost btn-sm" id="attCamBtn" type="button">📷 צלם קבלה</button>
+      <button class="btn btn-ghost btn-sm" id="attFileBtn" type="button">📎 העלה קובץ</button>
+    </div>
+    <input id="attCam" type="file" accept="image/*" capture="environment" style="display:none">
+    <input id="attFile" type="file" accept="image/*,application/pdf" multiple style="display:none">`}`;
+  el.querySelectorAll('[data-openf]').forEach(b=>b.onclick=()=>openAttachment(b.dataset.openf));
+  el.querySelectorAll('[data-delf]').forEach(b=>b.onclick=()=>{const fid=b.dataset.delf;it.files=it.files.filter(x=>x.id!==fid);deleteAttachment(fid);saveQuiet();renderItemFiles(it);});
+  if(RO)return;
+  const handleFiles=async list=>{const files=[...list];if(!files.length)return;toast('מעלה...');
+    for(const f of files){try{const meta=await uploadAttachment(f);it.files.push(meta);}catch(err){toast(err&&err.message==='too big'?'קובץ גדול מדי (עד ~5MB)':'שגיאה בהעלאה');}}
+    saveQuiet();renderItemFiles(it);toast('נוסף');};
+  $('#attCamBtn').onclick=()=>$('#attCam').click();
+  $('#attFileBtn').onclick=()=>$('#attFile').click();
+  $('#attCam').onchange=e=>handleFiles(e.target.files);
+  $('#attFile').onchange=e=>handleFiles(e.target.files);
 }
 
 // ---------- category editor ----------
