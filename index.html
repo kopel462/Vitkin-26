@@ -407,13 +407,35 @@ async function uploadAttachment(file){
   await filesRef.child(fid).set({name:file.name,type:file.type||'',data:dataURL});
   return {id:fid,name:file.name,type:file.type||'',size:approx};
 }
-function openAttachment(fid){
+function dataURLtoBlob(dataURL){
+  const parts=dataURL.split(',');const mime=(parts[0].match(/:(.*?);/)||[])[1]||'application/octet-stream';
+  const bin=atob(parts[1]);const arr=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+  return new Blob([arr],{type:mime});
+}
+function showImageModal(src,name){
+  const lb=document.createElement('div');
+  lb.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:300;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;gap:14px';
+  lb.innerHTML=`<img src="${src}" style="max-width:100%;max-height:78vh;border-radius:10px;object-fit:contain">
+    <div style="display:flex;gap:10px">
+      <a href="${src}" download="${esc(name||'receipt.jpg')}" style="background:#fff;color:#000;padding:11px 20px;border-radius:11px;text-decoration:none;font-weight:700">⬇ שמור</a>
+      <button type="button" style="background:rgba(255,255,255,.2);color:#fff;border:none;padding:11px 20px;border-radius:11px;font-weight:700">✕ סגור</button>
+    </div>
+    <div style="color:rgba(255,255,255,.7);font-size:.8rem">${esc(name||'')}</div>`;
+  lb.querySelector('button').onclick=()=>lb.remove();
+  lb.onclick=e=>{if(e.target===lb)lb.remove();};
+  document.body.appendChild(lb);
+}
+function openAttachment(fid,ftype,fname){
   if(!filesRef)return;
-  filesRef.child(fid).once('value').then(snap=>{const f=snap.val();if(!f){toast('הקובץ לא נמצא');return;}
-    const a=document.createElement('a');a.href=f.data;a.target='_blank';a.rel='noopener';
-    if((f.type||'').indexOf('image/')!==0)a.download=f.name||'file';
-    document.body.appendChild(a);a.click();a.remove();
-  }).catch(()=>toast('שגיאה בפתיחת הקובץ'));
+  const isImg=(ftype||'').indexOf('image/')===0;
+  let win=null;
+  if(!isImg){ win=window.open('','_blank'); } // פתיחת חלון סינכרונית (למחוות משתמש) לקבצי PDF
+  filesRef.child(fid).once('value').then(snap=>{const f=snap.val();if(!f){toast('הקובץ לא נמצא');if(win)win.close();return;}
+    if((f.type||'').indexOf('image/')===0 || isImg){ showImageModal(f.data,f.name||fname); if(win)win.close(); return; }
+    try{ const url=URL.createObjectURL(dataURLtoBlob(f.data)); if(win){win.location=url;}else{window.open(url,'_blank');} setTimeout(()=>URL.revokeObjectURL(url),60000); }
+    catch(e){ if(win)win.close(); toast('לא ניתן לפתוח את הקובץ'); }
+  }).catch(()=>{ if(win)win.close(); toast('שגיאה בפתיחת הקובץ'); });
 }
 function deleteAttachment(fid){ if(filesRef)filesRef.child(fid).remove(); }
 function pushCloud(){ if(fbRef && !VIEW){ try{ fbRef.set(JSON.parse(JSON.stringify(data))); }catch(e){ console.warn('cloud push failed',e); } } }
@@ -877,9 +899,9 @@ function renderCats(){
 function openFilesList(title,files){
   if(!files||!files.length)return;
   sheet(`<h3>📎 קבצים — ${esc(title||'')}</h3>
-    <div class="att-list">${files.map(f=>`<div class="att"><span class="att-ic">${(f.type||'').indexOf('image/')===0?'🖼️':'📄'}</span><span class="att-name" data-openf="${f.id}">${esc(f.name||'קובץ')}</span></div>`).join('')}</div>
-    <p class="hint" style="margin-top:10px">הקש על שם קובץ כדי לפתוח/להוריד.</p>`);
-  $('#sheet').querySelectorAll('[data-openf]').forEach(b=>b.onclick=()=>openAttachment(b.dataset.openf));
+    <div class="att-list">${files.map(f=>`<div class="att"><span class="att-ic">${(f.type||'').indexOf('image/')===0?'🖼️':'📄'}</span><span class="att-name" data-openf="${f.id}" data-ftype="${esc(f.type||'')}" data-fname="${esc(f.name||'')}">${esc(f.name||'קובץ')}</span></div>`).join('')}</div>
+    <p class="hint" style="margin-top:10px">הקש על שם קובץ כדי לפתוח.</p>`);
+  $('#sheet').querySelectorAll('[data-openf]').forEach(b=>b.onclick=()=>openAttachment(b.dataset.openf,b.dataset.ftype,b.dataset.fname));
 }
 
 let catChart,flowChart;
@@ -1254,7 +1276,7 @@ function renderAttachEditor(obj,elId,labelTxt){
   const el=$(elId); if(!el)return;
   if(!filesRef){el.innerHTML=`<label>📎 ${labelTxt}</label><p class="hint">צירוף קבצים זמין בגרסת האתר (עם חיבור לענן).</p>`;return;}
   obj.files=obj.files||[];
-  const list=obj.files.map(f=>`<div class="att"><span class="att-ic">${(f.type||'').indexOf('image/')===0?'🖼️':'📄'}</span><span class="att-name" data-openf="${f.id}">${esc(f.name||'קובץ')}</span>${RO?'':`<button class="att-del" data-delf="${f.id}" type="button">×</button>`}</div>`).join('');
+  const list=obj.files.map(f=>`<div class="att"><span class="att-ic">${(f.type||'').indexOf('image/')===0?'🖼️':'📄'}</span><span class="att-name" data-openf="${f.id}" data-ftype="${esc(f.type||'')}" data-fname="${esc(f.name||'')}">${esc(f.name||'קובץ')}</span>${RO?'':`<button class="att-del" data-delf="${f.id}" type="button">×</button>`}</div>`).join('');
   el.innerHTML=`<label>📎 ${labelTxt}</label>
     <div class="att-list">${list||'<div class="hint">אין קבצים עדיין</div>'}</div>
     ${RO?'':`<div class="btn-row" style="margin-top:8px">
@@ -1263,7 +1285,7 @@ function renderAttachEditor(obj,elId,labelTxt){
     </div>
     <input id="attCam" type="file" accept="image/*" capture="environment" style="display:none">
     <input id="attFile" type="file" accept="image/*,application/pdf" multiple style="display:none">`}`;
-  el.querySelectorAll('[data-openf]').forEach(b=>b.onclick=()=>openAttachment(b.dataset.openf));
+  el.querySelectorAll('[data-openf]').forEach(b=>b.onclick=()=>openAttachment(b.dataset.openf,b.dataset.ftype,b.dataset.fname));
   el.querySelectorAll('[data-delf]').forEach(b=>b.onclick=()=>{const fid=b.dataset.delf;obj.files=obj.files.filter(x=>x.id!==fid);deleteAttachment(fid);saveQuiet();renderAttachEditor(obj,elId,labelTxt);});
   if(RO)return;
   const handleFiles=async fl=>{const files=[...fl];if(!files.length)return;toast('מעלה...');
