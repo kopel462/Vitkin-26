@@ -1239,7 +1239,6 @@ function openItem(id,presetCat){
     <button class="btn btn-primary" id="fSave" style="margin-top:18px">${id?'שמור שינויים':'הוסף אבן דרך'}</button>
     ${id?'<button class="btn btn-danger btn-sm" id="fDel" style="margin-top:10px">מחק אבן דרך</button>':''}
   `);
-  renderItemFiles(it);
 
   function renderAmt(){
     const cat=data.categories.find(c=>c.id===$('#fCat').value);
@@ -1287,19 +1286,22 @@ function openItem(id,presetCat){
     }
   }
   $('#fCat').onchange=renderAmt;
-  renderAmt();
+  try{ renderAmt(); }catch(e){ console.warn('renderAmt failed',e); }
+  try{ renderItemFiles(it); }catch(e){ console.warn('files section failed',e); }
 
   $('#fSave').onclick=()=>{
     const cat=data.categories.find(c=>c.id===$('#fCat').value);
     const budget=+(cat&&cat.budget)||0;
-    const desc=$('#fDesc').value.trim(); if(!desc){toast('נא להזין תיאור');return;}
+    const pctMode=$('#amtSection').dataset.mode==='pct';
+    let desc=$('#fDesc').value.trim();
+    if(!desc)desc=pctMode?('תשלום '+clampPct(($('#fShare')||{}).value)+'%'):'תשלום'; // תיאור אופציונלי — ברירת מחדל
     const base={cat:$('#fCat').value,desc,due:$('#fDue').value,status:'manual',files:it.files||[]};
     let o;
-    if($('#amtSection').dataset.mode==='pct'){
+    if(pctMode && $('#fShare')){
       const sh=clampPct($('#fShare').value);
-      o={...base,sharePct:sh,total:Math.round(budget*sh/100),paidPct:$('#fPaid').checked?100:0};
+      o={...base,sharePct:sh,total:Math.round(budget*sh/100),paidPct:($('#fPaid')&&$('#fPaid').checked)?100:0};
     }else{
-      o={...base,sharePct:null,total:+$('#fTotal').value||0,paidPct:clampPct($('#fPct').value)};
+      o={...base,sharePct:null,total:($('#fTotal')?+$('#fTotal').value||0:(+it.total||0)),paidPct:($('#fPct')?clampPct($('#fPct').value):clampPct(it.paidPct))};
     }
     if(id){Object.assign(it,o);}else{data.items.push({id:uid(),...o});}
     close();save();toast(id?'עודכן':'נוסף');
