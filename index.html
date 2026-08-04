@@ -246,6 +246,8 @@
   .att-del{background:none;border:none;color:var(--muted);font-size:1.15rem;cursor:pointer;padding:0 4px;line-height:1}
   .files-chip{color:var(--brand);font-weight:600;cursor:pointer;background:var(--brand-l);padding:1px 8px;border-radius:20px}
   .sheet-x{position:absolute;top:12px;inset-inline-start:14px;background:var(--bg);border:none;border-radius:50%;width:34px;height:34px;font-size:1rem;color:var(--muted);cursor:pointer;z-index:3;display:grid;place-items:center}
+  .cat-search{width:100%;padding:11px 14px;border:1.5px solid var(--line);border-radius:12px;font-family:inherit;font-size:1rem;margin-bottom:12px;background:#fff;color:var(--ink)}
+  .cat-search:focus{outline:none;border-color:var(--brand)}
   /* overview status cards */
   .stat-row{display:flex;justify-content:space-between;align-items:baseline;padding:2px 0}
   .stat-row .k{font-size:.85rem;color:var(--muted)}
@@ -323,12 +325,14 @@
 
   <!-- EXPENSES -->
   <section class="view" id="v-expenses">
+    <input id="expSearch" class="cat-search" type="search" dir="auto" placeholder="🔍 חיפוש קטגוריה...">
     <div id="catList"></div>
     <button class="btn btn-ghost" id="btnAddCat" style="margin-top:14px">＋ הוסף קטגוריה חדשה</button>
   </section>
 
   <!-- BUDGET -->
   <section class="view" id="v-budget">
+    <input id="budSearch" class="cat-search" type="search" dir="auto" placeholder="🔍 חיפוש קטגוריה...">
     <div id="budgetBlock"></div>
   </section>
 
@@ -796,6 +800,7 @@ function renderOverviewCards(){
   const g=$('#ovBudget').querySelector('[data-goto]'); if(g)g.onclick=()=>switchView('budget');
 }
 
+let expFilter='', budFilter='';
 function renderCats(){
   const el=$('#catList'); el.innerHTML='';
   // מיון בתוך אזור: התחלת לשלם ← למעלה, יש תקציב ולא שולם ← באמצע, ריק ← למטה
@@ -803,7 +808,7 @@ function renderCats(){
   const zoneOf=c=>c.id==='apt'?'apt':(c.zone||'in');
   const zoneMeta=[['apt','🏠 רכישת הדירה'],['in','🏠 פנים'],['out','🌳 חוץ / מרפסת'],['gen','📋 כללי']];
   zoneMeta.forEach(([z,label])=>{
-   const zc=data.categories.filter(c=>zoneOf(c)===z); // סדר ידני — לפי סדר המערך
+   const zc=data.categories.filter(c=>zoneOf(c)===z && (!expFilter||(c.name||'').includes(expFilter))); // סדר ידני + חיפוש
    if(!zc.length)return;
    const zPaid=zc.reduce((a,c)=>a+catTotals(c.id).paid,0);
    const hdr=document.createElement('div');hdr.className='zone-h';
@@ -1006,9 +1011,9 @@ function budgetStats(){
   let plan=0,committed=0,paid=0;const rows=[];
   const included=[];
   data.categories.forEach(c=>{
-    if(c.id==='apt')return; // רכישת הדירה מנוהלת בנפרד
-    if(c.included){included.push(c);return;} // כלול ברכישה — לא נספר בתקציב
+    if(c.id==='apt')return; // רכישת הדירה מנוהלת בנפרד (מוצגת בכרטיס נפרד בסקירה)
     const ct=catTotals(c.id);
+    if(c.included){ included.push(c); rows.push({c,plan:0,committed:0,paid:0,inc:true}); return; } // מוצג בתקציב, מסומן, לא נספר
     const p=+c.plan||0;
     plan+=p;committed+=ct.total;paid+=ct.paid;
     rows.push({c,plan:p,committed:ct.total,paid:ct.paid});
@@ -1026,7 +1031,18 @@ function renderBudget(){
   let warn='';
   if(s.plan>s.cap)warn=`⚠️ סך התכנון (${money(s.plan)}) חורג מהתקציב ב-${money(s.plan-s.cap)}`;
   else if(s.committed>s.cap)warn=`⚠️ סך החוזים חורג מהתקציב ב-${money(s.committed-s.cap)}`;
+  const moveBtns=r=>RO?'':`<button class="movebtn" data-mv="up" data-id="${r.c.id}" title="הזז למעלה">▲</button><button class="movebtn" data-mv="down" data-id="${r.c.id}" title="הזז למטה">▼</button>`;
   const rowHtml=r=>{
+    if(r.inc){ // קטגוריה כלולה ברכישה — מוצגת אך לא נספרת
+      return `<div class="brow">
+        <div class="brow-top">
+          <span class="bname" data-bcat="${r.c.id}" style="cursor:pointer">${r.c.icon||'📦'} ${esc(r.c.name)}</span>
+          <span style="display:flex;align-items:center;gap:6px"><span class="cat-inc">כלול ברכישה</span>${moveBtns(r)}</span>
+        </div>
+        <div class="brow-nums"><span style="color:var(--muted)">לא נספר בתקציב העיצוב</span></div>
+        ${partsSection(r.c)}
+      </div>`;
+    }
     const variance=r.plan-r.committed;
     const barPct=r.plan>0?Math.min(100,r.committed/r.plan*100):(r.committed>0?100:0);
     const barCol=r.committed>r.plan&&r.plan>0?'var(--red)':'var(--green)';
@@ -1035,7 +1051,7 @@ function renderBudget(){
         <span class="bname" data-bcat="${r.c.id}" style="cursor:pointer">${r.c.icon||'📦'} ${esc(r.c.name)}</span>
         <span style="display:flex;align-items:center;gap:6px">
           <span class="bchip ${variance<0?'over':'free'}">${variance<0?'חריגה ':'פנוי '}${money(Math.abs(variance))}</span>
-          ${RO?'':`<button class="movebtn" data-mv="up" data-id="${r.c.id}" title="הזז למעלה">▲</button><button class="movebtn" data-mv="down" data-id="${r.c.id}" title="הזז למטה">▼</button>`}
+          ${moveBtns(r)}
         </span>
       </div>
       <div class="bbar"><i style="width:${barPct}%;background:${barCol}"></i></div>
@@ -1056,11 +1072,13 @@ function renderBudget(){
         ${parts.map(p=>`<label class="part ${p.done?'done':''}"><input type="checkbox" data-pcheck="${c.id}|${p.id}" ${p.done?'checked':''}><span>${esc(p.name)}</span></label>`).join('')}
       </div>`;
   };
-  // קיבוץ לפי אזור עם כותרת וסכום-ביניים; בתוך אזור נשמר סדר הסידור הידני
+  // קיבוץ לפי אזור עם כותרת וסכום-ביניים; אזור לא מזוהה נופל ל"פנים" כדי ששום קטגוריה לא תיעלם
   const zoneMeta=[['in','🏠 פנים'],['out','🌳 חוץ / מרפסת'],['gen','📋 כללי']];
+  const zk=r=>['in','out','gen'].includes(r.c.zone)?r.c.zone:'in';
+  const matchQ=r=>!budFilter||(r.c.name||'').includes(budFilter);
   let rowsHtml='';
   zoneMeta.forEach(([z,label])=>{
-    const zr=s.rows.filter(r=>(r.c.zone||'in')===z);
+    const zr=s.rows.filter(r=>zk(r)===z && matchQ(r));
     if(!zr.length)return;
     const zPlan=zr.reduce((a,r)=>a+r.plan,0);
     rowsHtml+=`<div class="zone-h"><span>${label} · ${zr.length}</span><span class="zone-sum">מתוכנן ${money(zPlan)}</span></div>`;
@@ -1088,7 +1106,6 @@ function renderBudget(){
       <div class="card-h">מתוכנן מול בפועל לפי קטגוריה</div>
       <div class="card-b">
         ${rowsHtml||'<div class="hint">אין קטגוריות</div>'}
-        ${s.included.length?`<div class="hint" style="margin-top:12px">✅ כלול ברכישה (לא נספר בתקציב): ${s.included.map(c=>esc(c.name)).join(' · ')}</div>`:''}
         <p class="hint" style="margin-top:8px">💡 קבע "תקציב מתוכנן" לכל קטגוריה (בעריכת הקטגוריה ✎) כדי לראות חריגות מוקדם. מומלץ לשמור ~10‑15% כבלת"מ.</p>
       </div>
     </div>`;
@@ -1455,6 +1472,8 @@ $('#btnAddCat').onclick=()=>RO?toast('מצב צפייה בלבד'):openCat();
 $('#btnShare').onclick=shareLink; $('#btnShare2').onclick=shareLink;
 $('#btnSettingsTop').onclick=()=>switchView('settings');
 $('#btnBack').onclick=()=>history.back();
+$('#expSearch').oninput=e=>{expFilter=e.target.value.trim();renderCats();};
+$('#budSearch').oninput=e=>{budFilter=e.target.value.trim();renderBudget();};
 $('#headHero').onclick=()=>RO?null:switchView('settings');
 $('#btnExport').onclick=exportJSON;
 $('#btnImport').onclick=()=>$('#fileIn').click();
