@@ -762,20 +762,24 @@ function renderOverviewCards(){
   const a=data.items.find(i=>i.role==='advance'), b=data.items.find(i=>i.role==='balance');
   const advTotal=a?(+a.total||0):0, advPaid=a?paidOf(a):0;
   const balTotal=b?(+b.total||0):0, balRemain=b?remainOf(b):0;
+  const credit=+data.aptCredit||0;
+  const aptEff=advTotal+balTotal; // עלות הדירה בפועל אחרי זיכוי
   const aptPaid=advPaid+(b?paidOf(b):0);
-  const aptPct=price>0?Math.min(100,aptPaid/price*100):0;
+  const aptRemain=aptEff-aptPaid;
+  const aptPct=aptEff>0?Math.min(100,aptPaid/aptEff*100):0;
   let keyTxt='טרם הוגדר מועד';
   if(data.project.keyDate){const d=new Date(data.project.keyDate);const days=Math.ceil((d-new Date())/864e5);
     keyTxt=isNaN(days)?fmtDate(data.project.keyDate):(days>=0?`בעוד ${days} ימים`:'התקבל');}
   $('#ovApartment').innerHTML=`
     <div class="card"><div class="card-h">🏠 רכישת הדירה</div><div class="card-b">
       <div class="stat-row"><span class="k">מחיר הדירה</span><b class="num">${money(price)}</b></div>
+      ${credit>0?`<div class="stat-row"><span class="k">🎁 זיכוי / הטבה</span><b class="num" style="color:#15803d">-${money(credit)}</b></div>`:''}
       <div class="split2">
         <div class="split-box paid"><div class="l">מקדמה (${data.advancePct||20}%)</div><div class="v num">${money(advTotal)}</div><div class="s">${advPaid>=advTotal&&advTotal>0?'✓ שולם':'טרם שולם'}</div></div>
-        <div class="split-box due"><div class="l">יתרה (${100-(data.advancePct||20)}%)</div><div class="v num">${money(balRemain)}</div><div class="s">בקבלת מפתח · ${keyTxt}</div></div>
+        <div class="split-box due"><div class="l">יתרה${credit>0?' (בניכוי זיכוי)':` (${100-(data.advancePct||20)}%)`}</div><div class="v num">${money(balRemain)}</div><div class="s">בקבלת מפתח · ${keyTxt}</div></div>
       </div>
       <div class="thin-bar"><i style="width:${aptPct}%"></i></div>
-      <div class="stat-row" style="margin-top:6px"><span class="k" style="font-size:.76rem">שולם ${Math.round(aptPct)}%</span><span class="k" style="font-size:.76rem">נותר ${money(price-aptPaid)}</span></div>
+      <div class="stat-row" style="margin-top:6px"><span class="k" style="font-size:.76rem">שולם ${Math.round(aptPct)}%</span><span class="k" style="font-size:.76rem">נותר ${money(aptRemain)}</span></div>
     </div></div>`;
 
   // --- מעטפת עיצוב וריהוט ---
@@ -1002,8 +1006,9 @@ function regenApartment(){
   const advAmt=Math.round(price*adv/100);
   a.cat='apt';a.status='auto';a.desc=`מקדמה ${adv}% (חתימת חוזה)`;
   a.total=advAmt;a.paidPct=data.advancePaid?100:0;a.due=data.project.contractDate||'';
-  b.cat='apt';b.status='auto';b.desc=`יתרה ${bal}% (קבלת מפתח)`;
-  b.total=price-advAmt;b.due=data.project.keyDate||''; // היתרה נדרשת רק במסירה
+  const credit=+data.aptCredit||0; // זיכוי/הטבה מהקבלן — מנוכה מהיתרה (התשלום האחרון)
+  b.cat='apt';b.status='auto';b.desc=`יתרה ${bal}% (קבלת מפתח)`+(credit>0?' — בניכוי זיכוי':'');
+  b.total=Math.max(0,price-advAmt-credit);b.due=data.project.keyDate||''; // היתרה בניכוי הזיכוי, נדרשת במסירה
 }
 
 // ---------- budget ----------
@@ -1167,6 +1172,9 @@ function renderSettings(){
       <div><label>תאריך חתימת חוזה</label><input id="setContract" type="date" dir="ltr" value="${p.contractDate||''}"></div>
       <div><label>תאריך קבלת מפתח</label><input id="setKey" type="date" dir="ltr" value="${p.keyDate||''}"></div>
     </div>
+    <label>🎁 זיכוי / הטבה מהקבלן (₪)</label>
+    <input id="setCredit" type="number" inputmode="numeric" dir="ltr" value="${data.aptCredit||''}" placeholder="0">
+    <p class="hint">למשל זיכוי מטבח — מנוכה מהיתרה (התשלום האחרון). הספק עצמו נרשם בעלות המלאה בקטגוריה שלו.</p>
     <div id="aptPreview" style="background:var(--brand-l);border-radius:12px;padding:11px 14px;margin-top:14px;font-size:.85rem;line-height:1.7"></div>
     <div style="height:1px;background:var(--line);margin:16px 0"></div>
     <div style="font-weight:700;margin-bottom:8px">🖼️ תמונת אווירה בהאדר</div>
@@ -1179,11 +1187,14 @@ function renderSettings(){
     <button class="btn btn-primary" id="setSave" style="margin-top:16px">שמור הגדרות</button>`;
   const preview=()=>{
     const price=+$('#setAptPrice').value||0, av=Math.max(0,Math.min(100,+$('#setAdv').value||0));
-    const advAmt=Math.round(price*av/100), paid=$('#setAdvPaid').checked;
-    $('#aptPreview').innerHTML=`מקדמה ${av}%: <b class="num">${money(advAmt)}</b> ${paid?'· ✓ שולמה':'· טרם שולמה'}<br>יתרה ${100-av}% (במסירה): <b class="num">${money(price-advAmt)}</b>`;
+    const advAmt=Math.round(price*av/100), paid=$('#setAdvPaid').checked, credit=+$('#setCredit').value||0;
+    const balance=Math.max(0,price-advAmt-credit);
+    $('#aptPreview').innerHTML=`מקדמה ${av}%: <b class="num">${money(advAmt)}</b> ${paid?'· ✓ שולמה':'· טרם שולמה'}`
+      +(credit>0?`<br>🎁 זיכוי/הטבה: <b class="num">-${money(credit)}</b>`:'')
+      +`<br>יתרה במסירה: <b class="num">${money(balance)}</b>`;
   };
   if(RO){$('#settingsBody').querySelectorAll('input,button').forEach(e=>e.disabled=true);preview();return;}
-  ['#setAptPrice','#setAdv'].forEach(s=>$(s).oninput=preview);
+  ['#setAptPrice','#setAdv','#setCredit'].forEach(s=>$(s).oninput=preview);
   $('#setAdvPaid').onchange=preview; preview();
   // תמונת אווירה — טעינה, כיווץ ושמירה כ-base64
   $('#heroPick').onclick=()=>$('#heroFile').click();
@@ -1201,6 +1212,7 @@ function renderSettings(){
     data.project.contractDate=$('#setContract').value;
     data.project.keyDate=$('#setKey').value;
     data.aptPrice=+$('#setAptPrice').value||0;
+    data.aptCredit=+$('#setCredit').value||0;
     data.advancePct=Math.max(0,Math.min(100,Math.round(+$('#setAdv').value||20)));
     data.advancePaid=$('#setAdvPaid').checked;
     regenApartment();
