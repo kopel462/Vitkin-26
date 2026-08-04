@@ -334,6 +334,7 @@
   <section class="view" id="v-budget">
     <input id="budSearch" class="cat-search" type="search" dir="auto" placeholder="🔍 חיפוש קטגוריה...">
     <div id="budgetBlock"></div>
+    <button class="btn btn-ghost" id="btnAddCatBudget" style="margin-top:14px">＋ הוסף קטגוריה חדשה</button>
   </section>
 
   <!-- CASHFLOW -->
@@ -363,7 +364,7 @@
   </section>
 </div>
 
-<button class="fab" id="fab" title="הוסף הוצאה">＋</button>
+<button class="fab" id="fab" title="הוסף קטגוריה" style="display:none">＋</button>
 
 <nav class="nav">
   <button data-v="overview" class="on"><span class="ni">📊</span><span class="nl">סקירה</span></button>
@@ -1083,6 +1084,7 @@ function renderBudget(){
     const zPlan=zr.reduce((a,r)=>a+r.plan,0);
     rowsHtml+=`<div class="zone-h"><span>${label} · ${zr.length}</span><span class="zone-sum">מתוכנן ${money(zPlan)}</span></div>`;
     zr.forEach(r=>rowsHtml+=rowHtml(r));
+    if(!RO&&!budFilter)rowsHtml+=`<button class="btn btn-ghost btn-sm" data-addcatzone="${z}" style="margin:4px 0 6px;width:auto">＋ הוסף קטגוריה ל${label.replace(/^\S+\s/,'')}</button>`;
   });
   bb.innerHTML=`
     <div class="card">
@@ -1112,6 +1114,7 @@ function renderBudget(){
   const ec=$('#editCap'); if(ec)ec.onclick=openBudgetCap;
   bb.querySelectorAll('[data-bcat]').forEach(b=>b.onclick=()=>RO?null:openCatEdit(b.dataset.bcat));
   bb.querySelectorAll('[data-mv]').forEach(b=>b.onclick=e=>{e.stopPropagation();moveCat(b.dataset.id,b.dataset.mv==='up'?-1:1);});
+  bb.querySelectorAll('[data-addcatzone]').forEach(b=>b.onclick=()=>RO?null:openCat(b.dataset.addcatzone));
   bb.querySelectorAll('[data-ptoggle]').forEach(b=>b.onclick=e=>{e.stopPropagation();const pl=bb.querySelector('#pl-'+b.dataset.ptoggle);if(pl)pl.style.display=pl.style.display==='none'?'':'none';});
   bb.querySelectorAll('[data-pcheck]').forEach(cb=>cb.onchange=e=>{
     e.stopPropagation();const [cid,pid]=cb.dataset.pcheck.split('|');
@@ -1456,6 +1459,7 @@ function applyView(v){curView=v;
   document.querySelectorAll('.view').forEach(x=>x.classList.toggle('active',x.id==='v-'+v));
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   const bk=$('#btnBack'); if(bk)bk.style.display=(v==='overview')?'none':'grid';
+  const fab=$('#fab'); if(fab)fab.style.display=(!RO&&(v==='expenses'||v==='budget'))?'grid':'none'; // ＋ מוסיף קטגוריה, רק בתקציב/הוצאות
   window.scrollTo(0,0);
 }
 function switchView(v){ if(v===curView){applyView(v);return;} history.pushState({v:v},''); applyView(v); }
@@ -1467,8 +1471,9 @@ window.addEventListener('popstate',e=>{
 // ---------- events ----------
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>switchView(b.dataset.v));
 $('#overlay').onclick=e=>{if(e.target===$('#overlay'))close();};
-$('#fab').onclick=()=>RO?toast('מצב צפייה בלבד'):openItem();
+$('#fab').onclick=()=>RO?toast('מצב צפייה בלבד'):openCat();
 $('#btnAddCat').onclick=()=>RO?toast('מצב צפייה בלבד'):openCat();
+$('#btnAddCatBudget').onclick=()=>RO?toast('מצב צפייה בלבד'):openCat();
 $('#btnShare').onclick=shareLink; $('#btnShare2').onclick=shareLink;
 $('#btnSettingsTop').onclick=()=>switchView('settings');
 $('#btnBack').onclick=()=>history.back();
