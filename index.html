@@ -318,7 +318,7 @@
       <div class="card-b"><canvas id="chartCat"></canvas><div class="chart-legend" id="catLegend"></div></div>
     </div>
     <div class="card">
-      <div class="card-h">התשלום הקרוב</div>
+      <div class="card-h">תשלומים קרובים <button class="link" data-goto="cashflow">כל התזרים ›</button></div>
       <div class="card-b" id="nextPay"></div>
     </div>
   </section>
@@ -795,7 +795,7 @@ function renderOverviewCards(){
     <div class="card"><div class="card-h">🎯 עיצוב וריהוט <button class="link" data-goto="budget">פירוט מלא ›</button></div><div class="card-b">
       <div class="bud-remain ${remainCls}">${remainTxt}<span class="big num">${money(Math.abs(s.capRemain))}</span><span style="font-size:.78rem;font-weight:500;opacity:.85"> מתוך תקציב מתוכנן ${money(s.cap)}</span></div>
       <div class="bud-bar"><i class="p-paid" style="width:${pctPaid}%"></i><i class="p-commit" style="width:${pctCommitOnly}%"></i></div>
-      <div class="bud-legend"><span><i style="background:var(--green)"></i>שולם ${money(s.paid)}</span><span><i style="background:var(--amber)"></i>התחייבות פתוחה ${money(Math.max(0,s.committed-s.paid))}</span><span><i style="background:var(--line)"></i>פנוי ${money(Math.max(0,s.capRemain))}</span></div>
+      <div class="bud-legend"><span><i style="background:var(--green)"></i>שולם ${money(s.paid)}</span><span class="lg-commit" style="cursor:pointer;text-decoration:underline dotted"><i style="background:var(--amber)"></i>התחייבות פתוחה ${money(Math.max(0,s.committed-s.paid))} ›</span><span><i style="background:var(--line)"></i>פנוי ${money(Math.max(0,s.capRemain))}</span></div>
       <div class="bud-mini">
         <div><div class="l">חוזים (התחייבות)</div><div class="v num">${money(s.committed)}</div></div>
         <div><div class="l">שולם</div><div class="v num">${money(s.paid)}</div></div>
@@ -803,6 +803,7 @@ function renderOverviewCards(){
       ${warn?`<div class="bwarn">${warn}</div>`:''}
     </div></div>`;
   const g=$('#ovBudget').querySelector('[data-goto]'); if(g)g.onclick=()=>switchView('budget');
+  $('#ovBudget').querySelectorAll('.lg-commit').forEach(b=>b.onclick=openCommitmentBreakdown);
 }
 
 let expFilter='', budFilter='';
@@ -946,11 +947,13 @@ function futurePayments(){
 function renderNextPay(){
   const up=futurePayments();const el=$('#nextPay');
   if(!up.length){el.innerHTML='<div class="empty" style="padding:20px"><div class="e-ic">📅</div>אין תשלומים עתידיים מתוזמנים.<br><span style="font-size:.82rem">הוסף תאריך יעד לסעיף כדי שיופיע כאן.</span></div>';return;}
-  const n=up[0];const cat=data.categories.find(c=>c.id===n.cat);
-  el.innerHTML=`<div class="tl-item plan" style="margin:0">
-    <div class="cat-ic" style="background:${(cat?.color||'#64748b')}22;color:${cat?.color||'#64748b'}">${cat?.icon||'📦'}</div>
-    <div class="tl-body"><div class="tl-t">${esc(n.desc)}</div><div class="tl-s">${esc((cat&&cat.supplier)||cat?.name||'')}${n.due?' · '+fmtDate(n.due):' · ללא תאריך'}</div></div>
-    <div class="tl-amt num">${money(n.outstanding)}</div></div>`;
+  el.innerHTML=up.slice(0,4).map((n,i)=>{const cat=data.categories.find(c=>c.id===n.cat);const d=n.due?new Date(n.due):null;
+    return `<div class="tl-item plan" style="margin:${i?'8px 0 0':'0'}">
+      <div class="tl-date"><div class="d num">${d?d.getDate():'–'}</div><div class="mo">${d?d.toLocaleDateString('he-IL',{month:'short'}):''}</div></div>
+      <div class="cat-ic" style="background:${(cat?.color||'#64748b')}22;color:${cat?.color||'#64748b'}">${cat?.icon||'📦'}</div>
+      <div class="tl-body"><div class="tl-t">${esc(cat?.name||'')} · ${esc(n.desc)}</div><div class="tl-s">${n.due?fmtDate(n.due):'ללא תאריך'}</div></div>
+      <div class="tl-amt num">${money(n.outstanding)}</div></div>`;
+  }).join('');
 }
 
 function renderTimeline(){
@@ -1013,6 +1016,16 @@ function regenApartment(){
 
 // ---------- budget ----------
 // התקציב = סכום ההקצאות לקטגוריות (מתוכנן). מספר אחד, ללא "יעד" נפרד.
+function openCommitmentBreakdown(){
+  const rows=data.categories.filter(c=>c.id!=='apt'&&!c.included)
+    .map(c=>{const ct=catTotals(c.id);return {c,open:ct.total-ct.paid};})
+    .filter(r=>r.open>0).sort((a,b)=>b.open-a.open);
+  const tot=rows.reduce((a,r)=>a+r.open,0);
+  sheet(`<h3>🟧 התחייבות פתוחה — ממה מורכב</h3>
+    <p class="hint">עלויות/חוזים שסגרת אך טרם שולמו:</p>
+    <div style="margin-top:8px">${rows.map(r=>`<div class="brow-nums" style="padding:10px 2px;border-bottom:1px solid var(--line)"><span>${r.c.icon||'📦'} ${esc(r.c.name)}</span><b class="num">${money(r.open)}</b></div>`).join('')||'<div class="hint">אין התחייבות פתוחה</div>'}</div>
+    <div class="brow-nums" style="padding:12px 2px 2px;font-weight:800;font-size:1.02rem"><span>סה"כ</span><b class="num">${money(tot)}</b></div>`);
+}
 function budgetStats(){
   let plan=0,committed=0,paid=0;const rows=[];
   const included=[];
@@ -1100,7 +1113,7 @@ function renderBudget(){
         </div>
         <p class="hint" style="margin-top:4px">התקציב מחושב אוטומטית מסכום התקציב המתוכנן לכל הקטגוריות. שנה הקצאה בעריכת קטגוריה ✎.</p>
         <div class="bud-bar"><i class="p-paid" style="width:${pctPaid}%"></i><i class="p-commit" style="width:${pctCommitOnly}%"></i></div>
-        <div class="bud-legend"><span><i style="background:var(--green)"></i>שולם ${money(s.paid)}</span><span><i style="background:var(--amber)"></i>התחייבות פתוחה ${money(Math.max(0,s.committed-s.paid))}</span><span><i style="background:var(--line)"></i>פנוי ${money(Math.max(0,s.capRemain))}</span></div>
+        <div class="bud-legend"><span><i style="background:var(--green)"></i>שולם ${money(s.paid)}</span><span class="lg-commit" style="cursor:pointer;text-decoration:underline dotted"><i style="background:var(--amber)"></i>התחייבות פתוחה ${money(Math.max(0,s.committed-s.paid))} ›</span><span><i style="background:var(--line)"></i>פנוי ${money(Math.max(0,s.capRemain))}</span></div>
         <div class="bud-remain ${remainCls}">${remainTxt}<span class="big num">${money(Math.abs(s.capRemain))}</span></div>
         <div class="bud-mini">
           <div><div class="l">חוזים (התחייבות)</div><div class="v num">${money(s.committed)}</div></div>
@@ -1120,6 +1133,7 @@ function renderBudget(){
   bb.querySelectorAll('[data-bcat]').forEach(b=>b.onclick=()=>RO?null:openCatEdit(b.dataset.bcat));
   bb.querySelectorAll('[data-mv]').forEach(b=>b.onclick=e=>{e.stopPropagation();moveCat(b.dataset.id,b.dataset.mv==='up'?-1:1);});
   bb.querySelectorAll('[data-addcatzone]').forEach(b=>b.onclick=()=>RO?null:openCat(b.dataset.addcatzone));
+  bb.querySelectorAll('.lg-commit').forEach(b=>b.onclick=openCommitmentBreakdown);
   bb.querySelectorAll('[data-ptoggle]').forEach(b=>b.onclick=e=>{e.stopPropagation();const pl=bb.querySelector('#pl-'+b.dataset.ptoggle);if(pl)pl.style.display=pl.style.display==='none'?'':'none';});
   bb.querySelectorAll('[data-pcheck]').forEach(cb=>cb.onchange=e=>{
     e.stopPropagation();const [cid,pid]=cb.dataset.pcheck.split('|');
@@ -1255,8 +1269,17 @@ function openItem(id,presetCat){
         <input id="fShare" type="range" min="0" max="100" step="5" value="${curShare}" style="margin-top:12px;padding:0;accent-color:var(--brand)">
         <div style="display:flex;align-items:center;gap:8px;margin-top:8px"><input id="fShareNum" type="number" inputmode="numeric" dir="ltr" min="0" max="100" value="${curShare}" style="width:90px"><span class="hint" style="margin:0">אחוז מדויק</span></div>
         <div style="${calcStyle}"><span>סכום אבן הדרך:</span><span class="num" id="calcAmt">₪0</span></div>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--ink);cursor:pointer;margin-top:14px"><input id="fPaid" type="checkbox" style="width:20px;height:20px" ${clampPct(it.paidPct)>=100?'checked':''}> ✓ התשלום בוצע (הסעיף סגור)</label>`;
-      const recalc=()=>{const sh=clampPct($('#fShare').value);$('#calcAmt').textContent=money(Math.round(budget*sh/100));};
+        <label style="margin-top:14px">שולם עד כה (₪) — למעקב פריסת תשלומים</label>
+        <input id="fPaidAmt" type="number" inputmode="numeric" dir="ltr" placeholder="0" value="${it.total?paidOf(it)||'':''}">
+        <div style="display:flex;gap:6px;margin-top:8px"><button type="button" class="btn btn-ghost btn-sm" id="fPaidNone" style="width:auto">איפוס</button><button type="button" class="btn btn-ghost btn-sm" id="fPaidAll" style="width:auto">שולם במלואו ✓</button></div>
+        <div style="${calcStyle};margin-top:10px"><span>שולם: <span class="num" id="calcPaidA">₪0</span></span><span>נותר: <span class="num" id="calcRemA">₪0</span></span></div>`;
+      const amtNow=()=>Math.round(budget*clampPct($('#fShare').value)/100);
+      const recalc=()=>{const amt=amtNow();$('#calcAmt').textContent=money(amt);
+        const paid=Math.max(0,Math.min(amt,+$('#fPaidAmt').value||0));
+        $('#calcPaidA').textContent=money(paid);$('#calcRemA').textContent=money(amt-paid);};
+      $('#fPaidAmt').oninput=recalc;
+      $('#fPaidAll').onclick=()=>{$('#fPaidAmt').value=amtNow();recalc();};
+      $('#fPaidNone').onclick=()=>{$('#fPaidAmt').value='';recalc();};
       const setShare=(p,from)=>{p=clampPct(p);if(from!=='range')$('#fShare').value=p;if(from!=='num')$('#fShareNum').value=p;
         document.querySelectorAll('input[name=pc]').forEach(r=>r.checked=(+r.value===p));recalc();};
       $('#fShare').oninput=()=>setShare($('#fShare').value,'range');
@@ -1299,7 +1322,9 @@ function openItem(id,presetCat){
     let o;
     if(pctMode && $('#fShare')){
       const sh=clampPct($('#fShare').value);
-      o={...base,sharePct:sh,total:Math.round(budget*sh/100),paidPct:($('#fPaid')&&$('#fPaid').checked)?100:0};
+      const total=Math.round(budget*sh/100);
+      const paidAmt=Math.max(0,Math.min(total,+($('#fPaidAmt')?$('#fPaidAmt').value:0)||0));
+      o={...base,sharePct:sh,total,paidPct:total>0?clampPct(paidAmt/total*100):0};
     }else{
       o={...base,sharePct:null,total:($('#fTotal')?+$('#fTotal').value||0:(+it.total||0)),paidPct:($('#fPct')?clampPct($('#fPct').value):clampPct(it.paidPct))};
     }
