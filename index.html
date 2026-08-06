@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
-<!--VITKIN_BUILD=14-->
+<!--VITKIN_BUILD=15-->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
@@ -1245,13 +1245,37 @@ function renderSettings(){
 }
 
 // ---------- פריסת תשלומים ----------
+// חיוב אשראי — ה-10 בחודש. ברירת מחדל: ה-10 בחודש העוקב
+const ymd=(y,m,d)=>{const t=new Date(y,m,1);return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');}; // מנרמל גלישת שנה, ללא אזורי זמן
+function creditFirstDate(fromDate){
+  const base=fromDate?new Date(fromDate):new Date();
+  if(isNaN(base))return '';
+  return ymd(base.getFullYear(),base.getMonth()+1,10); // ה-10 בחודש הבא
+}
+// סימון אוטומטי: תשלומי אשראי שתאריכם עבר — נחשבים כמו שנגבו
+function autoMarkInstallments(){
+  const today=new Date();today.setHours(23,59,59,999);
+  let changed=false;
+  (data.items||[]).forEach(it=>{
+    if(!it.autoCharge||!it.installments)return;
+    it.installments.forEach(p=>{
+      if(!p.paid&&p.date){const d=new Date(p.date);if(!isNaN(d)&&d<=today){p.paid=true;changed=true;}}
+    });
+  });
+  return changed;
+}
 function genInstallments(total,n,firstDate,existing){
   n=Math.max(1,Math.min(120,Math.round(n||1)));
   const base=Math.floor((+total||0)/n);const arr=[];
   for(let i=0;i<n;i++){
     const amt=(i===n-1)?((+total||0)-base*(n-1)):base;
     let ds='';
-    if(firstDate){const d=new Date(firstDate);if(!isNaN(d)){d.setMonth(d.getMonth()+i);ds=d.toISOString().slice(0,10);}}
+    if(firstDate){const d0=new Date(firstDate);if(!isNaN(d0)){
+      const y=d0.getFullYear(),mo=d0.getMonth()+i,day=d0.getDate();
+      const t=new Date(y,mo,1); // שמירה על היום בחודש גם בחודשים קצרים
+      const last=new Date(t.getFullYear(),t.getMonth()+1,0).getDate();
+      ds=ymd(t.getFullYear(),t.getMonth(),Math.min(day,last));
+    }}
     const prev=existing&&existing[i];
     arr.push({id:(prev&&prev.id)||uid(),date:ds,amount:amt,paid:prev?!!prev.paid:false});
   }
@@ -1267,12 +1291,13 @@ function renderInstallments(it){
     </div>
     <input id="instToggle" type="checkbox" style="display:none" ${on?'checked':''}>
     <div id="instBody" style="${on?'':'display:none'}">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--ink);cursor:pointer;margin-top:12px"><input id="instAuto" type="checkbox" style="width:20px;height:20px" ${(it.autoCharge===undefined?true:it.autoCharge)?'checked':''}> 💳 הוראת קבע באשראי (חיוב ב-10 לחודש, סימון אוטומטי)</label>
       <div class="field-row" style="margin-top:12px">
         <div><label>מספר תשלומים</label><input id="instN" type="number" inputmode="numeric" dir="ltr" min="1" max="120" value="${on?it.installments.length:12}"></div>
         <div><label>תשלום ראשון</label><input id="instFirst" type="date" dir="ltr" value="${on&&it.installments[0]?it.installments[0].date:''}"></div>
       </div>
       <button type="button" class="btn btn-ghost btn-sm" id="instGen" style="margin-top:8px">צור / עדכן פריסה</button>
-      <p class="hint" style="margin-top:6px">✓ סמן כל תשלום ששולם. כל תשלום שטרם שולם יופיע אוטומטית בתזרים ובתשלומים הקרובים עם התאריך שלו.</p>
+      <p class="hint" style="margin-top:6px" id="instHint"></p>
       <div id="instList" style="margin-top:8px"></div>
     </div>`;
   const curTotal=()=>{ const mode=$('#amtSection').dataset.mode; if(mode==='pct'&&$('#fShare')){const cat=data.categories.find(c=>c.id===$('#fCat').value);const budget=+(cat&&cat.budget)||0;return Math.round(budget*clampPct($('#fShare').value)/100);} return $('#fTotal')?(+$('#fTotal').value||0):(+it.total||0); };
@@ -1292,16 +1317,32 @@ function renderInstallments(it){
   };
   syncPaidField();
   if($('#instToggle')){
+    if(it.autoCharge===undefined)it.autoCharge=true;
+    const isAuto=()=>$('#instAuto')?$('#instAuto').checked:!!it.autoCharge;
+    const updHint=()=>{const h=$('#instHint');if(h)h.innerHTML=isAuto()
+      ?'💳 החיוב מתבצע אוטומטית ב-10 לחודש — התשלומים יסומנו כשולמו מעצמם במועדם. אין צורך לסמן ידנית.'
+      :'✓ סמן כל תשלום ששולם. תשלומים שטרם שולמו יופיעו בתזרים ובתשלומים הקרובים.';};
+    const ensureFirst=()=>{ // באשראי — ה-10 בחודש העוקב כברירת מחדל
+      const f=$('#instFirst'); if(!f)return;
+      if(isAuto()&&!f.value)f.value=creditFirstDate($('#fDue')?$('#fDue').value:'');
+    };
+    const regen=()=>{ ensureFirst();
+      it.autoCharge=isAuto();
+      it.installments=genInstallments(curTotal(),+$('#instN').value||1,$('#instFirst').value,it.installments);
+      if(it.autoCharge){const t=new Date();t.setHours(23,59,59,999);
+        it.installments.forEach(p=>{if(p.date){const d=new Date(p.date);if(!isNaN(d)&&d<=t)p.paid=true;}});}
+      drawList();syncPaidField();updHint();
+    };
     const setMode=on2=>{
       $('#instToggle').checked=on2;
       if(on2){ $('#instBody').style.display='';
-        if(!it.installments||!it.installments.length)it.installments=genInstallments(curTotal(),+$('#instN').value||12,$('#instFirst').value,null);
-      } else { $('#instBody').style.display='none'; it.installments=[]; }
-      drawList();syncPaidField();
+        if(!it.installments||!it.installments.length)regen();
+      } else { $('#instBody').style.display='none'; it.installments=[]; drawList(); syncPaidField(); }
     };
     document.querySelectorAll('input[name=payMode]').forEach(r=>r.onchange=()=>setMode(r.value==='many'));
-    $('#instGen').onclick=()=>{ it.installments=genInstallments(curTotal(),+$('#instN').value||1,$('#instFirst').value,it.installments); drawList(); syncPaidField(); };
-    drawList();
+    if($('#instAuto'))$('#instAuto').onchange=()=>{it.autoCharge=isAuto();if($('#instAuto').checked){const f=$('#instFirst');if(f)f.value=creditFirstDate($('#fDue')?$('#fDue').value:'');}regen();};
+    $('#instGen').onclick=regen;
+    drawList();updHint();
   }
 }
 
@@ -1394,7 +1435,7 @@ function openItem(id,presetCat){
     const pctMode=$('#amtSection').dataset.mode==='pct';
     let desc=$('#fDesc').value.trim();
     if(!desc)desc=pctMode?('תשלום '+clampPct(($('#fShare')||{}).value)+'%'):'תשלום'; // תיאור אופציונלי — ברירת מחדל
-    const base={cat:$('#fCat').value,desc,due:$('#fDue').value,status:'manual',files:it.files||[],installments:it.installments||[]};
+    const base={cat:$('#fCat').value,desc,due:$('#fDue').value,status:'manual',files:it.files||[],installments:it.installments||[],autoCharge:($('#instAuto')?$('#instAuto').checked:!!it.autoCharge)};
     let o;
     if(pctMode && $('#fShare')){
       const sh=clampPct($('#fShare').value);
@@ -1604,6 +1645,8 @@ $('#btnReset').onclick=()=>{if(confirm('לאפס את כל הנתונים ולה
 if(VIEW)RO=true;
 try{history.replaceState({v:'overview'},'');}catch(e){}
 initCloud();
+// חיובי אשראי שעבר מועדם — מסומנים אוטומטית כשולמו
+try{ if(autoMarkInstallments()&&!RO)saveQuiet(); }catch(e){}
 render();
 if(RO)toast(VIEW?'צפייה בלבד — מתעדכן אוטומטית':'נפתח במצב צפייה בלבד');
 
@@ -1622,7 +1665,9 @@ function checkUpdate(){
   }).catch(()=>{});
 }
 checkUpdate();
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkUpdate();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){checkUpdate();
+  try{ if(autoMarkInstallments()&&!RO){saveQuiet();render();} }catch(e){}
+}});
 </script>
 </body>
 </html>
