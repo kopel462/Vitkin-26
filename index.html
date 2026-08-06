@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
-<!--VITKIN_BUILD=9-->
+<!--VITKIN_BUILD=10-->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
@@ -386,7 +386,10 @@ const fmt=new Intl.NumberFormat('he-IL',{style:'currency',currency:'ILS',maximum
 const money=n=>fmt.format(Math.round(n||0));
 const uid=()=>Math.random().toString(36).slice(2,9);
 const clampPct=p=>Math.max(0,Math.min(100,Math.round(+p||0)));
-const paidOf=it=>Math.round((+it.total||0)*clampPct(it.paidPct)/100); // שולם = עלות × אחוז
+const paidOf=it=>{ // שולם = סכום התשלומים ששולמו (אם יש פריסה) אחרת עלות × אחוז
+  if(it&&it.installments&&it.installments.length)return it.installments.filter(p=>p.paid).reduce((a,p)=>a+(+p.amount||0),0);
+  return Math.round((+it.total||0)*clampPct(it.paidPct)/100);
+};
 const remainOf=it=>(+it.total||0)-paidOf(it);
 const $=s=>document.querySelector(s);
 let RO=false; // read-only mode
@@ -445,7 +448,7 @@ function deleteAttachment(fid){ if(filesRef)filesRef.child(fid).remove(); }
 function pushCloud(){ if(fbRef && !VIEW){ try{ fbRef.set(JSON.parse(JSON.stringify(data))); }catch(e){ console.warn('cloud push failed',e); } } }
 function fixArrays(d){ d.items=d.items||[]; d.categories=d.categories||[];
   d.categories.forEach(c=>{ if(c.parts&&!Array.isArray(c.parts))c.parts=Object.values(c.parts); if(c.files&&!Array.isArray(c.files))c.files=Object.values(c.files); });
-  d.items.forEach(i=>{ if(i.files&&!Array.isArray(i.files))i.files=Object.values(i.files); });
+  d.items.forEach(i=>{ if(i.files&&!Array.isArray(i.files))i.files=Object.values(i.files); if(i.installments&&!Array.isArray(i.installments))i.installments=Object.values(i.installments); });
   return d; }
 function initCloud(){
   if(!fbRef)return;
@@ -936,9 +939,15 @@ function renderCatChart(){
 }
 
 function upcoming(){
-  return data.items.filter(i=>itemStatus(i)!=='paid' && remainOf(i)>0)
-    .map(i=>({...i,outstanding:remainOf(i)}))
-    .sort((a,b)=>{if(!a.due)return 1;if(!b.due)return -1;return new Date(a.due)-new Date(b.due)});
+  const out=[];
+  data.items.forEach(i=>{
+    if(i.installments&&i.installments.length){ // פריסת תשלומים — כל תשלום פתוח כשורה נפרדת
+      i.installments.forEach((p,idx)=>{ if(!p.paid && (+p.amount||0)>0) out.push({...i,desc:(i.desc||'')+' — תשלום '+(idx+1)+'/'+i.installments.length,due:p.date||'',outstanding:+p.amount||0}); });
+    } else if(itemStatus(i)!=='paid' && remainOf(i)>0){
+      out.push({...i,outstanding:remainOf(i)});
+    }
+  });
+  return out.sort((a,b)=>{if(!a.due)return 1;if(!b.due)return -1;return new Date(a.due)-new Date(b.due)});
 }
 function futurePayments(){
   const today=new Date();today.setHours(0,0,0,0);
@@ -1235,6 +1244,54 @@ function renderSettings(){
   };
 }
 
+// ---------- פריסת תשלומים ----------
+function genInstallments(total,n,firstDate,existing){
+  n=Math.max(1,Math.min(120,Math.round(n||1)));
+  const base=Math.floor((+total||0)/n);const arr=[];
+  for(let i=0;i<n;i++){
+    const amt=(i===n-1)?((+total||0)-base*(n-1)):base;
+    let ds='';
+    if(firstDate){const d=new Date(firstDate);if(!isNaN(d)){d.setMonth(d.getMonth()+i);ds=d.toISOString().slice(0,10);}}
+    const prev=existing&&existing[i];
+    arr.push({id:(prev&&prev.id)||uid(),date:ds,amount:amt,paid:prev?!!prev.paid:false});
+  }
+  return arr;
+}
+function renderInstallments(it){
+  const el=$('#instSection'); if(!el)return;
+  const on=!!(it.installments&&it.installments.length);
+  el.innerHTML=`<label style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--ink);cursor:pointer"><input id="instToggle" type="checkbox" style="width:20px;height:20px" ${on?'checked':''}> 🗓️ פרוס לתשלומים (שוברים)</label>
+    <div id="instBody" style="${on?'':'display:none'}">
+      <div class="field-row" style="margin-top:10px">
+        <div><label>מספר תשלומים</label><input id="instN" type="number" inputmode="numeric" dir="ltr" min="1" max="120" value="${on?it.installments.length:12}"></div>
+        <div><label>תשלום ראשון</label><input id="instFirst" type="date" dir="ltr" value="${on&&it.installments[0]?it.installments[0].date:''}"></div>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" id="instGen" style="margin-top:8px">צור / עדכן פריסה</button>
+      <p class="hint" style="margin-top:6px">כשפריסה פעילה, המעקב מתבצע לפי התשלומים כאן (מבטל את "שולם עד כה"). כל תשלום פתוח יופיע בתזרים.</p>
+      <div id="instList" style="margin-top:8px"></div>
+    </div>`;
+  const curTotal=()=>{ const mode=$('#amtSection').dataset.mode; if(mode==='pct'&&$('#fShare')){const cat=data.categories.find(c=>c.id===$('#fCat').value);const budget=+(cat&&cat.budget)||0;return Math.round(budget*clampPct($('#fShare').value)/100);} return $('#fTotal')?(+$('#fTotal').value||0):(+it.total||0); };
+  function drawList(){
+    const l=$('#instList'); if(!l)return;
+    const ins=it.installments||[];
+    if(!ins.length){l.innerHTML='<div class="hint">הזן מספר תשלומים ותאריך ראשון, ולחץ "צור / עדכן פריסה".</div>';return;}
+    const paidN=ins.filter(p=>p.paid).length, tot=ins.reduce((a,p)=>a+(+p.amount||0),0);
+    l.innerHTML=`<div class="hint" style="margin-bottom:6px">${paidN}/${ins.length} שולמו · סה"כ <b class="num">${money(tot)}</b></div>`+
+      ins.map((p,idx)=>`<label class="part ${p.paid?'done':''}"><input type="checkbox" data-inst="${idx}" ${p.paid?'checked':''}><span>תשלום ${idx+1} · <span class="num">${p.date?fmtDate(p.date):'—'}</span></span><b class="num">${money(p.amount)}</b></label>`).join('');
+    l.querySelectorAll('[data-inst]').forEach(cb=>cb.onchange=()=>{const idx=+cb.dataset.inst;it.installments[idx].paid=cb.checked;cb.closest('.part').classList.toggle('done',cb.checked);drawList();});
+  }
+  if($('#instToggle')){
+    $('#instToggle').onchange=e=>{
+      if(e.target.checked){ $('#instBody').style.display='';
+        if(!it.installments||!it.installments.length)it.installments=genInstallments(curTotal(),+$('#instN').value||12,$('#instFirst').value,null);
+        drawList();
+      } else { $('#instBody').style.display='none'; it.installments=[]; drawList(); }
+    };
+    $('#instGen').onclick=()=>{ it.installments=genInstallments(curTotal(),+$('#instN').value||1,$('#instFirst').value,it.installments); drawList(); };
+    drawList();
+  }
+}
+
 // ---------- item editor ----------
 function openItem(id,presetCat){
   const it=id?data.items.find(i=>i.id===id):{id:null,cat:presetCat||data.categories[0].id,desc:'',supplier:'',total:'',paidPct:0,sharePct:null,due:''};
@@ -1249,6 +1306,8 @@ function openItem(id,presetCat){
     <div id="amtSection"></div>
     <label>תאריך תשלום / יעד</label>
     <input id="fDue" type="date" dir="ltr" value="${it.due||''}">
+    <div style="height:1px;background:var(--line);margin:16px 0"></div>
+    <div id="instSection"></div>
     <div style="height:1px;background:var(--line);margin:16px 0"></div>
     <div id="filesSection"></div>
     <button class="btn btn-primary" id="fSave" style="margin-top:18px">${id?'שמור שינויים':'הוסף אבן דרך'}</button>
@@ -1311,6 +1370,7 @@ function openItem(id,presetCat){
   }
   $('#fCat').onchange=renderAmt;
   try{ renderAmt(); }catch(e){ console.warn('renderAmt failed',e); }
+  try{ renderInstallments(it); }catch(e){ console.warn('installments failed',e); }
   try{ renderItemFiles(it); }catch(e){ console.warn('files section failed',e); }
 
   $('#fSave').onclick=()=>{
@@ -1319,7 +1379,7 @@ function openItem(id,presetCat){
     const pctMode=$('#amtSection').dataset.mode==='pct';
     let desc=$('#fDesc').value.trim();
     if(!desc)desc=pctMode?('תשלום '+clampPct(($('#fShare')||{}).value)+'%'):'תשלום'; // תיאור אופציונלי — ברירת מחדל
-    const base={cat:$('#fCat').value,desc,due:$('#fDue').value,status:'manual',files:it.files||[]};
+    const base={cat:$('#fCat').value,desc,due:$('#fDue').value,status:'manual',files:it.files||[],installments:it.installments||[]};
     let o;
     if(pctMode && $('#fShare')){
       const sh=clampPct($('#fShare').value);
@@ -1329,6 +1389,7 @@ function openItem(id,presetCat){
     }else{
       o={...base,sharePct:null,total:($('#fTotal')?+$('#fTotal').value||0:(+it.total||0)),paidPct:($('#fPct')?clampPct($('#fPct').value):clampPct(it.paidPct))};
     }
+    if(o.installments&&o.installments.length){const pd=o.installments.filter(p=>p.paid).reduce((a,p)=>a+(+p.amount||0),0);o.paidPct=o.total>0?clampPct(pd/o.total*100):0;}
     if(id){Object.assign(it,o);}else{data.items.push({id:uid(),...o});}
     close();save();toast(id?'עודכן':'נוסף');
   };
