@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
-<!--VITKIN_BUILD=13-->
+<!--VITKIN_BUILD=14-->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
@@ -1258,7 +1258,7 @@ function genInstallments(total,n,firstDate,existing){
   return arr;
 }
 function renderInstallments(it){
-  const el=$('#instSection'); if(!el)return;
+  const el=$('#instSlot')||$('#instSection'); if(!el)return;
   const on=!!(it.installments&&it.installments.length);
   el.innerHTML=`<label style="margin-top:14px">אופן התשלום</label>
     <div class="seg">
@@ -1285,15 +1285,10 @@ function renderInstallments(it){
       ins.map((p,idx)=>`<label class="part ${p.paid?'done':''}"><input type="checkbox" data-inst="${idx}" ${p.paid?'checked':''}><span>תשלום ${idx+1} · <span class="num">${p.date?fmtDate(p.date):'—'}</span></span><b class="num">${money(p.amount)}</b></label>`).join('');
     l.querySelectorAll('[data-inst]').forEach(cb=>cb.onchange=()=>{const idx=+cb.dataset.inst;it.installments[idx].paid=cb.checked;cb.closest('.part').classList.toggle('done',cb.checked);drawList();});
   }
-  // כשפריסה פעילה — מסתירים את "שולם עד כה" כדי שלא יהיו שני מנגנוני מעקב
+  // כשפריסה פעילה — מסתירים את בלוק "שולם עד כה" (מסלול תשלום אחד)
   const syncPaidField=()=>{
     const on2=!!(it.installments&&it.installments.length);
-    const lbls=document.querySelectorAll('#amtSection label');
-    lbls.forEach(l=>{ if(l.textContent.indexOf('שולם עד כה')===0||l.textContent.indexOf('שולם עד כה')>-1){ l.style.display=on2?'none':''; } });
-    const pa=$('#fPaidAmt'); if(pa)pa.style.display=on2?'none':'';
-    const pn=$('#fPaidNone'), pl=$('#fPaidAll');
-    if(pn&&pn.parentElement)pn.parentElement.style.display=on2?'none':'';
-    if(pl&&pl.parentElement)pl.parentElement.style.display=on2?'none':'';
+    const w=$('#onePayWrap'); if(w)w.style.display=on2?'none':'';
   };
   syncPaidField();
   if($('#instToggle')){
@@ -1346,10 +1341,13 @@ function openItem(id,presetCat){
         <input id="fShare" type="range" min="0" max="100" step="5" value="${curShare}" style="margin-top:12px;padding:0;accent-color:var(--brand)">
         <div style="display:flex;align-items:center;gap:8px;margin-top:8px"><input id="fShareNum" type="number" inputmode="numeric" dir="ltr" min="0" max="100" value="${curShare}" style="width:90px"><span class="hint" style="margin:0">אחוז מדויק</span></div>
         <div style="${calcStyle}"><span>סכום אבן הדרך:</span><span class="num" id="calcAmt">₪0</span></div>
-        <label style="margin-top:14px">שולם עד כה (₪) — למעקב פריסת תשלומים</label>
-        <input id="fPaidAmt" type="number" inputmode="numeric" dir="ltr" placeholder="0" value="${it.total?paidOf(it)||'':''}">
-        <div style="display:flex;gap:6px;margin-top:8px"><button type="button" class="btn btn-ghost btn-sm" id="fPaidNone" style="width:auto">איפוס</button><button type="button" class="btn btn-ghost btn-sm" id="fPaidAll" style="width:auto">שולם במלואו ✓</button></div>
-        <div style="${calcStyle};margin-top:10px"><span>שולם: <span class="num" id="calcPaidA">₪0</span></span><span>נותר: <span class="num" id="calcRemA">₪0</span></span></div>`;
+        <div id="instSlot"></div>
+        <div id="onePayWrap">
+          <label style="margin-top:14px">שולם עד כה (₪)</label>
+          <input id="fPaidAmt" type="number" inputmode="numeric" dir="ltr" placeholder="0" value="${it.total?paidOf(it)||'':''}">
+          <div style="display:flex;gap:6px;margin-top:8px"><button type="button" class="btn btn-ghost btn-sm" id="fPaidNone" style="width:auto">איפוס</button><button type="button" class="btn btn-ghost btn-sm" id="fPaidAll" style="width:auto">שולם במלואו ✓</button></div>
+          <div style="${calcStyle};margin-top:10px"><span>שולם: <span class="num" id="calcPaidA">₪0</span></span><span>נותר: <span class="num" id="calcRemA">₪0</span></span></div>
+        </div>`;
       const amtNow=()=>Math.round(budget*clampPct($('#fShare').value)/100);
       const recalc=()=>{const amt=amtNow();$('#calcAmt').textContent=money(amt);
         const paid=Math.max(0,Math.min(amt,+$('#fPaidAmt').value||0));
@@ -1385,7 +1383,7 @@ function openItem(id,presetCat){
       $('#fTotal').oninput=recalc; recalc(); $('#amtSection').dataset.mode='amt';
     }
   }
-  $('#fCat').onchange=renderAmt;
+  $('#fCat').onchange=()=>{ try{renderAmt();}catch(e){} try{renderInstallments(it);}catch(e){} };
   try{ renderAmt(); }catch(e){ console.warn('renderAmt failed',e); }
   try{ renderInstallments(it); }catch(e){ console.warn('installments failed',e); }
   try{ renderItemFiles(it); }catch(e){ console.warn('files section failed',e); }
