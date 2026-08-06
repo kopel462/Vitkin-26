@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
-<!--VITKIN_BUILD=18-->
+<!--VITKIN_BUILD=19-->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
@@ -455,13 +455,15 @@ function fixArrays(d){ d.items=d.items||[]; d.categories=d.categories||[];
 function initCloud(){
   if(!fbRef)return;
   if(VIEW){ RO=true;
-    fbRef.on('value',snap=>{ const v=snap.val(); if(v){ data=fixArrays(migrate(v)); render(); } });
+    fbRef.on('value',snap=>{ const v=snap.val(); if(v){ data=fixArrays(migrate(v)); try{normalizeCreditDates();autoMarkInstallments();}catch(e){} render(); } });
     return;
   }
   // בעלים: סנכרון חד-פעמי בטעינה — הצד העדכני יותר מנצח
   fbRef.once('value').then(snap=>{
     const v=snap.val();
-    if(v && (v.updatedAt||0) > (data.updatedAt||0)){ data=fixArrays(migrate(v)); render(); }
+    if(v && (v.updatedAt||0) > (data.updatedAt||0)){ data=fixArrays(migrate(v));
+      try{ const c1=normalizeCreditDates(), c2=autoMarkInstallments(); if((c1||c2)&&!RO)saveQuiet(); }catch(e){}
+      render(); }
     else { pushCloud(); }
   }).catch(e=>console.warn('cloud read failed',e));
 }
@@ -1266,7 +1268,9 @@ function creditFirstDate(fromDate){
 function normalizeCreditDates(){
   let changed=false;
   (data.items||[]).forEach(it=>{
-    if(!it.autoCharge||!it.installments)return;
+    if(!it.installments||!it.installments.length)return;
+    if(it.autoCharge===undefined){it.autoCharge=true;changed=true;} // פריסות קיימות — ברירת מחדל אשראי
+    if(!it.autoCharge)return;
     it.installments.forEach(p=>{
       if(!p.date)return;
       const d=new Date(p.date); if(isNaN(d)||d.getDate()===10)return;
