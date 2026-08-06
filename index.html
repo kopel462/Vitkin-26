@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
-<!--VITKIN_BUILD=15-->
+<!--VITKIN_BUILD=17-->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
@@ -239,6 +239,8 @@
   .part-add{display:flex;gap:6px;margin-top:8px}
   .part-add input{flex:1;padding:9px 11px;font-size:.9rem;border:1.5px solid var(--line);border-radius:10px;font-family:inherit}
   .part-add button{background:var(--brand);color:#fff;border:none;border-radius:10px;width:42px;font-size:1.2rem;cursor:pointer;flex-shrink:0}
+  .inst-sum{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 13px;cursor:pointer}
+  .inst-sum:active{background:var(--brand-l)}
   /* attachments */
   .att-list{display:flex;flex-direction:column;gap:6px;margin-top:6px}
   .att{display:flex;align-items:center;gap:9px;background:var(--bg);border-radius:10px;padding:9px 11px;font-size:.88rem}
@@ -1301,13 +1303,23 @@ function renderInstallments(it){
       <div id="instList" style="margin-top:8px"></div>
     </div>`;
   const curTotal=()=>{ const mode=$('#amtSection').dataset.mode; if(mode==='pct'&&$('#fShare')){const cat=data.categories.find(c=>c.id===$('#fCat').value);const budget=+(cat&&cat.budget)||0;return Math.round(budget*clampPct($('#fShare').value)/100);} return $('#fTotal')?(+$('#fTotal').value||0):(+it.total||0); };
+  let instOpen=false; // רשימת התשלומים מקופלת כברירת מחדל
   function drawList(){
     const l=$('#instList'); if(!l)return;
     const ins=it.installments||[];
     if(!ins.length){l.innerHTML='<div class="hint">הזן מספר תשלומים ותאריך ראשון, ולחץ "צור / עדכן פריסה".</div>';return;}
     const paidN=ins.filter(p=>p.paid).length, tot=ins.reduce((a,p)=>a+(+p.amount||0),0);
-    l.innerHTML=`<div class="hint" style="margin-bottom:6px">${paidN}/${ins.length} שולמו · סה"כ <b class="num">${money(tot)}</b></div>`+
-      ins.map((p,idx)=>`<label class="part ${p.paid?'done':''}"><input type="checkbox" data-inst="${idx}" ${p.paid?'checked':''}><span>תשלום ${idx+1} · <span class="num">${p.date?fmtDate(p.date):'—'}</span></span><b class="num">${money(p.amount)}</b></label>`).join('');
+    const paidSum=ins.filter(p=>p.paid).reduce((a,p)=>a+(+p.amount||0),0);
+    const nextP=ins.find(p=>!p.paid);
+    l.innerHTML=`<div class="inst-sum" data-insttoggle>
+        <div>
+          <div style="font-weight:700;font-size:.9rem">${paidN}/${ins.length} שולמו · <span class="num">${money(paidSum)}</span> מתוך <span class="num">${money(tot)}</span></div>
+          <div class="hint" style="margin:2px 0 0">${nextP?`התשלום הבא: <b class="num">${fmtDate(nextP.date)}</b> · <b class="num">${money(nextP.amount)}</b>`:'✓ כל התשלומים בוצעו'}</div>
+        </div>
+        <span style="color:var(--brand);font-weight:700;font-size:.82rem;white-space:nowrap">${instOpen?'▴ הסתר':'▾ פירוט'}</span>
+      </div>
+      <div style="${instOpen?'':'display:none'}">${ins.map((p,idx)=>`<label class="part ${p.paid?'done':''}"><input type="checkbox" data-inst="${idx}" ${p.paid?'checked':''}><span>תשלום ${idx+1} · <span class="num">${p.date?fmtDate(p.date):'—'}</span></span><b class="num">${money(p.amount)}</b></label>`).join('')}</div>`;
+    const tg=l.querySelector('[data-insttoggle]'); if(tg)tg.onclick=()=>{instOpen=!instOpen;drawList();};
     l.querySelectorAll('[data-inst]').forEach(cb=>cb.onchange=()=>{const idx=+cb.dataset.inst;it.installments[idx].paid=cb.checked;cb.closest('.part').classList.toggle('done',cb.checked);drawList();});
   }
   // כשפריסה פעילה — מסתירים את בלוק "שולם עד כה" (מסלול תשלום אחד)
@@ -1322,9 +1334,12 @@ function renderInstallments(it){
     const updHint=()=>{const h=$('#instHint');if(h)h.innerHTML=isAuto()
       ?'💳 החיוב מתבצע אוטומטית ב-10 לחודש — התשלומים יסומנו כשולמו מעצמם במועדם. אין צורך לסמן ידנית.'
       :'✓ סמן כל תשלום ששולם. תשלומים שטרם שולמו יופיעו בתזרים ובתשלומים הקרובים.';};
-    const ensureFirst=()=>{ // באשראי — ה-10 בחודש העוקב כברירת מחדל
+    const ensureFirst=()=>{ // באשראי — תמיד ה-10 בחודש (העוקב אם לא הוזן תאריך)
       const f=$('#instFirst'); if(!f)return;
-      if(isAuto()&&!f.value)f.value=creditFirstDate($('#fDue')?$('#fDue').value:'');
+      if(!isAuto())return;
+      if(!f.value){ f.value=creditFirstDate($('#fDue')?$('#fDue').value:''); return; }
+      const d=new Date(f.value);
+      if(!isNaN(d)&&d.getDate()!==10)f.value=ymd(d.getFullYear(),d.getMonth(),10); // כפיית ה-10
     };
     const regen=()=>{ ensureFirst();
       it.autoCharge=isAuto();
@@ -1341,6 +1356,7 @@ function renderInstallments(it){
     };
     document.querySelectorAll('input[name=payMode]').forEach(r=>r.onchange=()=>setMode(r.value==='many'));
     if($('#instAuto'))$('#instAuto').onchange=()=>{it.autoCharge=isAuto();if($('#instAuto').checked){const f=$('#instFirst');if(f)f.value=creditFirstDate($('#fDue')?$('#fDue').value:'');}regen();};
+    if($('#instFirst'))$('#instFirst').onchange=()=>{ if(isAuto()){ensureFirst();} }; // באשראי — מיישר ל-10 מיד
     $('#instGen').onclick=regen;
     drawList();updHint();
   }
