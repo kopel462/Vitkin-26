@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
-<!--VITKIN_BUILD=21-->
+<!--VITKIN_BUILD=22-->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
@@ -244,6 +244,18 @@
   .part-add{display:flex;gap:6px;margin-top:8px}
   .part-add input{flex:1;padding:9px 11px;font-size:.9rem;border:1.5px solid var(--line);border-radius:10px;font-family:inherit}
   .part-add button{background:var(--brand);color:#fff;border:none;border-radius:10px;width:42px;font-size:1.2rem;cursor:pointer;flex-shrink:0}
+  /* תת-סעיף עם מחיר וקבצים */
+  .prow{border-bottom:1px solid var(--line);padding:9px 2px}
+  .prow:last-of-type{border-bottom:none}
+  .prow-top{display:flex;align-items:center;gap:8px}
+  .prow .pname{font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .prow.done .pname{color:#15803d;font-weight:600}
+  .prow .pprice{max-width:96px;padding:7px 9px;font-size:.9rem;border:1.5px solid var(--line);border-radius:9px;font-family:inherit;text-align:center}
+  .prow .pprice:focus{outline:none;border-color:var(--brand)}
+  .prow-files{display:flex;align-items:center;gap:6px;margin-top:6px;padding-inline-start:27px}
+  .pfile-btn{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:.74rem;font-family:inherit;color:var(--muted);cursor:pointer}
+  .pfile-btn:active{background:var(--brand-l);color:var(--brand)}
+  .prow-sum{display:flex;justify-content:space-between;align-items:center;background:var(--brand-l);border-radius:10px;padding:10px 13px;margin-top:10px;font-weight:800;font-size:.92rem;color:var(--brand-d)}
   .inst-sum{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 13px;cursor:pointer}
   .inst-sum:active{background:var(--brand-l)}
   /* attachments */
@@ -454,7 +466,8 @@ function openAttachment(fid,ftype,fname){
 function deleteAttachment(fid){ if(filesRef)filesRef.child(fid).remove(); }
 function pushCloud(){ if(fbRef && !VIEW){ try{ fbRef.set(JSON.parse(JSON.stringify(data))); }catch(e){ console.warn('cloud push failed',e); } } }
 function fixArrays(d){ d.items=d.items||[]; d.categories=d.categories||[];
-  d.categories.forEach(c=>{ if(c.parts&&!Array.isArray(c.parts))c.parts=Object.values(c.parts); if(c.files&&!Array.isArray(c.files))c.files=Object.values(c.files); });
+  d.categories.forEach(c=>{ if(c.parts&&!Array.isArray(c.parts))c.parts=Object.values(c.parts); if(c.files&&!Array.isArray(c.files))c.files=Object.values(c.files);
+    (c.parts||[]).forEach(p=>{ if(p.files&&!Array.isArray(p.files))p.files=Object.values(p.files); }); });
   d.items.forEach(i=>{ if(i.files&&!Array.isArray(i.files))i.files=Object.values(i.files); if(i.installments&&!Array.isArray(i.installments))i.installments=Object.values(i.installments); });
   return d; }
 function initCloud(){
@@ -702,6 +715,8 @@ function itemStatus(it){
   if(pct>0) return 'partial';
   return 'due';
 }
+// סך המחירים של תתי-הסעיפים (רכיבים) בקטגוריה
+function partsSum(c){ return ((c&&c.parts)||[]).reduce((a,p)=>a+(+p.price||0),0); }
 function catTotals(cid){
   const its=data.items.filter(i=>i.cat===cid);
   let alloc=0,p=0;its.forEach(i=>{alloc+=(+i.total||0);p+=paidOf(i);});
@@ -1124,9 +1139,11 @@ function renderBudget(){
     const parts=c.parts||[];
     if(!parts.length)return '';
     const doneN=parts.filter(p=>p.done).length;
-    return `<div class="parts-toggle" data-ptoggle="${c.id}">▾ מה כלול · <span data-pcount="${c.id}">${doneN}/${parts.length}</span> סומנו</div>
+    const ps=partsSum(c);
+    return `<div class="parts-toggle" data-ptoggle="${c.id}">▾ מה כלול · <span data-pcount="${c.id}">${doneN}/${parts.length}</span> סומנו${ps>0?` · סה"כ <b class="num">${money(ps)}</b>`:''}</div>
       <div class="parts-list" id="pl-${c.id}" style="display:none">
-        ${parts.map(p=>`<label class="part ${p.done?'done':''}"><input type="checkbox" data-pcheck="${c.id}|${p.id}" ${p.done?'checked':''}><span>${esc(p.name)}</span></label>`).join('')}
+        ${parts.map(p=>`<label class="part ${p.done?'done':''}"><input type="checkbox" data-pcheck="${c.id}|${p.id}" ${p.done?'checked':''}><span>${esc(p.name)}</span>${(p.files&&p.files.length)?`<span class="files-chip" data-pfiles="${c.id}|${p.id}">📎 ${p.files.length}</span>`:''}${(+p.price)?`<b class="num">${money(p.price)}</b>`:''}</label>`).join('')}
+        ${ps>0?`<div class="prow-sum" style="margin-top:8px"><span>סך תתי-הסעיפים</span><b class="num">${money(ps)}</b></div>`:''}
       </div>`;
   };
   // קיבוץ לפי אזור עם כותרת וסכום-ביניים; אזור לא מזוהה נופל ל"פנים" כדי ששום קטגוריה לא תיעלם
@@ -1173,6 +1190,9 @@ function renderBudget(){
   bb.querySelectorAll('[data-addcatzone]').forEach(b=>b.onclick=()=>RO?null:openCat(b.dataset.addcatzone));
   bb.querySelectorAll('.lg-commit').forEach(b=>b.onclick=openCommitmentBreakdown);
   bb.querySelectorAll('.lg-paid').forEach(b=>b.onclick=openPaidBreakdown);
+  bb.querySelectorAll('[data-pfiles]').forEach(b=>b.onclick=e=>{e.preventDefault();e.stopPropagation();
+    const [cid,pid]=b.dataset.pfiles.split('|');const c=data.categories.find(x=>x.id===cid);
+    const p=c&&(c.parts||[]).find(x=>x.id===pid); if(p)openFilesList(p.name,p.files);});
   bb.querySelectorAll('[data-ptoggle]').forEach(b=>b.onclick=e=>{e.stopPropagation();const pl=bb.querySelector('#pl-'+b.dataset.ptoggle);if(pl)pl.style.display=pl.style.display==='none'?'':'none';});
   bb.querySelectorAll('[data-pcheck]').forEach(cb=>cb.onchange=e=>{
     e.stopPropagation();const [cid,pid]=cb.dataset.pcheck.split('|');
@@ -1593,17 +1613,26 @@ function openCatEdit(id){
     <p class="hint">שולם עד כה: <b class="num">${money(ct.paid)}</b> · שויך לאבני דרך: <b class="num">${money(ct.alloc)}</b>${ct.unalloc>0?` · יתרה פתוחה: <b class="num">${money(ct.unalloc)}</b>`:''}</p>
     <label style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--ink);cursor:pointer;margin-top:6px"><input id="cInc" type="checkbox" style="width:20px;height:20px" ${c.included?'checked':''}> כלול ברכישה (לא נספר בתקציב)</label>
     <div style="height:1px;background:var(--line);margin:16px 0"></div>
-    <label>מה כלול בהוצאה (תתי-סעיפים) — סמן V לכל רכיב שכבר נלקח בחשבון</label>
+    <label>מה כלול בהוצאה (תתי-סעיפים) — מחיר לכל רכיב, ✓ כשנלקח בחשבון, 📷 לקבלה/אחריות</label>
     <div id="partsList"></div>
-    <div class="part-add"><input id="partNew" dir="auto" placeholder="הוסף רכיב..."><button id="partAddBtn" type="button">＋</button></div>
+    <div class="part-add"><input id="partNew" dir="auto" placeholder="הוסף רכיב..."><input id="partNewPrice" type="number" inputmode="numeric" dir="ltr" placeholder="₪" style="max-width:90px"><button id="partAddBtn" type="button">＋</button></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <button type="button" class="btn btn-ghost btn-sm" id="partsApply" style="width:auto">⇧ החל סך התתי-סעיפים כעלות כוללת</button>
+      <span class="hint" id="partsSyncHint" style="margin:0"></span>
+    </div>
     <div style="height:1px;background:var(--line);margin:16px 0"></div>
     <div id="catFiles"></div>
     <button class="btn btn-primary" id="cSave" style="margin-top:18px">שמור שינויים</button>
     <button class="btn btn-danger btn-sm" id="cDel" style="margin-top:10px">מחק קטגוריה${ct.count?` (וכל ${ct.count} הסעיפים)`:''}</button>`);
   renderPartsEditor(c);
   renderAttachEditor(c,'#catFiles','חוזה/הסכם ומסמכים');
-  $('#partAddBtn').onclick=()=>{const v=$('#partNew').value.trim();if(!v)return;c.parts=c.parts||[];c.parts.push({id:uid(),name:v,done:false});$('#partNew').value='';saveQuiet();renderPartsEditor(c);};
+  $('#partAddBtn').onclick=()=>{const v=$('#partNew').value.trim();if(!v)return;
+    c.parts=c.parts||[];c.parts.push({id:uid(),name:v,price:+$('#partNewPrice').value||0,done:false,files:[]});
+    $('#partNew').value='';$('#partNewPrice').value='';saveQuiet();renderPartsEditor(c);};
   $('#partNew').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#partAddBtn').click();}};
+  $('#partNewPrice').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#partAddBtn').click();}};
+  $('#partsApply').onclick=()=>{const s=partsSum(c);if(s<=0){toast('הזן מחירים לתתי-הסעיפים');return;}$('#cBudget').value=s;toast('העלות הכוללת עודכנה ל-'+money(s));};
+  updPartsSum(c);
   $('#cSave').onclick=()=>{
     const name=$('#cName').value.trim();if(!name){toast('נא להזין שם');return;}
     c.name=name;c.supplier=$('#cSup').value.trim();c.plan=+$('#cPlan').value||0;c.budget=+$('#cBudget').value||0;c.included=$('#cInc').checked;c.zone=pickedZone(c.zone||'in');
@@ -1617,9 +1646,46 @@ function openCatEdit(id){
 function renderPartsEditor(c){
   const el=$('#partsList'); if(!el)return;
   const parts=c.parts||[];
-  el.innerHTML=parts.length?parts.map(p=>`<label class="part ${p.done?'done':''}"><input type="checkbox" data-ec="${p.id}" ${p.done?'checked':''}><span>${esc(p.name)}</span><button class="part-del" data-ed="${p.id}" type="button">×</button></label>`).join(''):'<div class="hint">אין רכיבים עדיין — הוסף למטה</div>';
-  el.querySelectorAll('[data-ec]').forEach(cb=>{cb.onchange=()=>{const p=(c.parts||[]).find(x=>x.id===cb.dataset.ec);if(!p)return;p.done=cb.checked;cb.closest('.part').classList.toggle('done',cb.checked);saveQuiet();};});
+  const sum=partsSum(c);
+  el.innerHTML=(parts.length?parts.map(p=>`
+      <div class="prow ${p.done?'done':''}">
+        <div class="prow-top">
+          <label style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;margin:0;cursor:pointer">
+            <input type="checkbox" data-ec="${p.id}" ${p.done?'checked':''} style="width:19px;height:19px;flex-shrink:0;accent-color:var(--green)">
+            <span class="pname">${esc(p.name)}</span>
+          </label>
+          <input class="pprice" type="number" inputmode="numeric" dir="ltr" placeholder="₪" data-eprice="${p.id}" value="${p.price||''}">
+          <button class="part-del" data-ed="${p.id}" type="button">×</button>
+        </div>
+        <div class="prow-files">
+          <button type="button" class="pfile-btn" data-pcam="${p.id}">📷 צלם</button>
+          <button type="button" class="pfile-btn" data-pfile="${p.id}">📎 קובץ</button>
+          ${(p.files&&p.files.length)?`<span class="files-chip" data-pview="${p.id}">📎 ${p.files.length}</span>`:''}
+        </div>
+      </div>`).join('')
+    :'<div class="hint">אין רכיבים עדיין — הוסף למטה</div>')
+    +(sum>0?`<div class="prow-sum"><span>סך תתי-הסעיפים</span><b class="num">${money(sum)}</b></div>`:'');
+  el.querySelectorAll('[data-ec]').forEach(cb=>{cb.onchange=()=>{const p=(c.parts||[]).find(x=>x.id===cb.dataset.ec);if(!p)return;p.done=cb.checked;cb.closest('.prow').classList.toggle('done',cb.checked);saveQuiet();};});
+  el.querySelectorAll('[data-eprice]').forEach(inp=>{inp.oninput=()=>{const p=(c.parts||[]).find(x=>x.id===inp.dataset.eprice);if(!p)return;p.price=+inp.value||0;saveQuiet();updPartsSum(c);};});
   el.querySelectorAll('[data-ed]').forEach(b=>{b.onclick=e=>{e.preventDefault();e.stopPropagation();c.parts=(c.parts||[]).filter(x=>x.id!==b.dataset.ed);saveQuiet();renderPartsEditor(c);};});
+  el.querySelectorAll('[data-pview]').forEach(b=>{b.onclick=()=>{const p=(c.parts||[]).find(x=>x.id===b.dataset.pview);if(p)openFilesList(p.name,p.files);};});
+  // צילום/העלאת קבלה או אחריות לתת-סעיף
+  const pick=(pid,cam)=>{const p=(c.parts||[]).find(x=>x.id===pid);if(!p)return;
+    if(!filesRef){toast('צירוף קבצים זמין בגרסת האתר');return;}
+    const inp=document.createElement('input');inp.type='file';inp.accept=cam?'image/*':'image/*,application/pdf';if(cam)inp.capture='environment';inp.style.display='none';
+    inp.onchange=async e=>{const f=e.target.files&&e.target.files[0];if(!f)return;toast('מעלה...');
+      try{const meta=await uploadAttachment(f);p.files=p.files||[];p.files.push(meta);saveQuiet();renderPartsEditor(c);toast('נוסף');}
+      catch(err){toast(err&&err.message==='too big'?'קובץ גדול מדי':'שגיאה בהעלאה');}
+      inp.remove();};
+    document.body.appendChild(inp);inp.click();};
+  el.querySelectorAll('[data-pcam]').forEach(b=>b.onclick=()=>pick(b.dataset.pcam,true));
+  el.querySelectorAll('[data-pfile]').forEach(b=>b.onclick=()=>pick(b.dataset.pfile,false));
+}
+function updPartsSum(c){ const el=$('#partsList');if(!el)return;
+  const s=partsSum(c);const box=el.querySelector('.prow-sum');
+  if(box){ if(s>0)box.querySelector('b').textContent=money(s); else box.remove(); }
+  else if(s>0)el.insertAdjacentHTML('beforeend',`<div class="prow-sum"><span>סך תתי-הסעיפים</span><b class="num">${money(s)}</b></div>`);
+  const pb=$('#cBudget'); const hint=$('#partsSyncHint'); if(hint)hint.textContent=s>0?`סך תתי-הסעיפים: ${money(s)} — לחץ "החל" כדי לעדכן את העלות הכוללת`:'';
 }
 
 // ---------- share / export ----------
