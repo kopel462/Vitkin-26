@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
-<!--VITKIN_BUILD=28-->
+<!--VITKIN_BUILD=29-->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
@@ -340,7 +340,7 @@
     <div id="ovApartment"></div>
     <div id="ovBudget"></div>
     <div class="card">
-      <div class="card-h">פילוח עלויות עיצוב וריהוט</div>
+      <div class="card-h">פילוח עלויות השלמת הדירה</div>
       <div class="card-b"><canvas id="chartCat"></canvas><div class="chart-legend" id="catLegend"></div></div>
     </div>
     <div class="card">
@@ -367,7 +367,7 @@
   <!-- CASHFLOW -->
   <section class="view" id="v-cashflow">
     <div class="card">
-      <div class="card-h">תקציב עיצוב — שולם מול פנוי</div>
+      <div class="card-h">תקציב השלמת הדירה — שולם מול פנוי</div>
       <div class="card-b"><canvas id="chartFlow"></canvas></div>
     </div>
     <div id="timeline"></div>
@@ -777,7 +777,7 @@ function render(){
 
   // hero — עלות פרויקט מתוכננת = דירה + תקציב עיצוב מתוכנן
   const aptTotal=catTotals('apt').total;         // רכישת הדירה (מקדמה+יתרה)
-  const fitPlan=budgetStats().plan;              // סך התכנון לעיצוב וריהוט
+  const fitPlan=budgetStats().plan;              // סך התכנון להשלמת הדירה
   const totalPlanned=aptTotal+fitPlan;
   const paidAll=t.paid;
   const pct=totalPlanned>0?Math.min(100,paidAll/totalPlanned*100):0;
@@ -786,7 +786,7 @@ function render(){
   $('#heroBar').style.width=pct+'%';
   $('#heroPct').textContent=Math.round(pct)+'% שולם';
   $('#heroRemain').textContent='נותר '+money(totalPlanned-paidAll);
-  $('#heroSplit').innerHTML=`<span>🏠 דירה<b class="num">${money(aptTotal)}</b></span><span>🎨 עיצוב וריהוט (מתוכנן)<b class="num">${money(fitPlan)}</b></span>`;
+  $('#heroSplit').innerHTML=`<span>🏠 דירה<b class="num">${money(aptTotal)}</b></span><span>🎨 השלמת הדירה (מתוכנן)<b class="num">${money(fitPlan)}</b></span>`;
 
   renderOverviewCards();
   renderExpSummary();
@@ -826,7 +826,7 @@ function renderOverviewCards(){
       <div class="stat-row" style="margin-top:6px"><span class="k" style="font-size:.76rem">שולם ${Math.round(aptPct)}%</span><span class="k" style="font-size:.76rem">נותר ${money(aptRemain)}</span></div>
     </div></div>`;
 
-  // --- מעטפת עיצוב וריהוט ---
+  // --- תקציב השלמת הדירה ---
   const s=budgetStats();
   const pctPaid=s.cap>0?Math.min(100,s.paid/s.cap*100):0;
   const pctCommitOnly=s.cap>0?Math.min(100,Math.max(0,(s.committed-s.paid)/s.cap*100)):0;
@@ -836,7 +836,7 @@ function renderOverviewCards(){
   if(s.plan>s.cap)warn=`⚠️ התכנון חורג מהתקציב ב-${money(s.plan-s.cap)}`;
   else if(s.committed>s.cap)warn=`⚠️ החוזים חורגים מהתקציב ב-${money(s.committed-s.cap)}`;
   $('#ovBudget').innerHTML=`
-    <div class="card"><div class="card-h">🎯 עיצוב וריהוט <button class="link" data-goto="budget">פירוט מלא ›</button></div><div class="card-b">
+    <div class="card"><div class="card-h">🎯 השלמת הדירה <button class="link" data-goto="budget">פירוט מלא ›</button></div><div class="card-b">
       <div class="bud-remain ${remainCls}">${remainTxt}<span class="big num">${money(Math.abs(s.capRemain))}</span><span style="font-size:.78rem;font-weight:500;opacity:.85"> מתוך תקציב מתוכנן ${money(s.cap)}</span></div>
       <div class="bud-bar"><i class="p-paid" style="width:${pctPaid}%"></i><i class="p-commit" style="width:${pctCommitOnly}%"></i></div>
       <div class="bud-legend"><span class="lg-paid" style="cursor:pointer;text-decoration:underline dotted"><i style="background:var(--green)"></i>שולם ${money(s.paid)} ›</span><span class="lg-commit" style="cursor:pointer;text-decoration:underline dotted"><i style="background:var(--amber)"></i>התחייבות פתוחה ${money(Math.max(0,s.committed-s.paid))} ›</span><span><i style="background:var(--line)"></i>פנוי ${money(Math.max(0,s.capRemain))}</span></div>
@@ -989,7 +989,7 @@ function openFilesList(title,files){
 
 let catChart,flowChart;
 function renderCatChart(){
-  // פילוח עיצוב וריהוט בלבד — ללא רכישת הדירה וללא קטגוריות כלולות
+  // פילוח השלמת הדירה בלבד — ללא רכישת הדירה וללא קטגוריות כלולות
   const rows=data.categories.filter(c=>c.id!=='apt'&&!c.included).map(c=>({c,t:catTotals(c.id).total})).filter(r=>r.t>0);
   const leg=$('#catLegend');
   if(!rows.length){leg.innerHTML='<span style="color:var(--muted)">עדיין אין עלויות עיצוב/ריהוט. הזן עלות כוללת לקטגוריה כדי לראות פילוח.</span>';if(catChart)catChart.destroy();catChart=null;return;}
@@ -1104,7 +1104,7 @@ function openPaidBreakdown(){
     .filter(r=>r.paid>0).sort((a,b)=>b.paid-a.paid);
   const tot=rows.reduce((a,r)=>a+r.paid,0);
   sheet(`<h3>🟢 שולם — ממה מורכב</h3>
-    <p class="hint">תשלומים שכבר בוצעו (עיצוב וריהוט):</p>
+    <p class="hint">תשלומים שכבר בוצעו (השלמת הדירה):</p>
     <div style="margin-top:8px">${rows.map(r=>`<div class="brow-nums" style="padding:10px 2px;border-bottom:1px solid var(--line)"><span>${r.c.icon||'📦'} ${esc(r.c.name)}</span><b class="num">${money(r.paid)}</b></div>`).join('')||'<div class="hint">עדיין לא בוצעו תשלומים</div>'}</div>
     <div class="brow-nums" style="padding:12px 2px 2px;font-weight:800;font-size:1.02rem"><span>סה"כ</span><b class="num">${money(tot)}</b></div>`);
 }
@@ -1150,7 +1150,7 @@ function renderBudget(){
           <span class="bname" data-bcat="${r.c.id}" style="cursor:pointer">${r.c.icon||'📦'} ${esc(r.c.name)}</span>
           <span style="display:flex;align-items:center;gap:6px"><span class="cat-inc">כלול ברכישה</span>${moveBtns(r)}</span>
         </div>
-        <div class="brow-nums"><span style="color:var(--muted)">לא נספר בתקציב העיצוב</span></div>
+        <div class="brow-nums"><span style="color:var(--muted)">לא נספר בתקציב</span></div>
         ${partsSection(r.c)}
       </div>`;
     }
@@ -1202,7 +1202,7 @@ function renderBudget(){
   });
   bb.innerHTML=`
     <div class="card">
-      <div class="card-h">תקציב עיצוב וריהוט <span style="font-weight:400;font-size:.76rem;color:var(--muted)">ללא רכישת הדירה</span></div>
+      <div class="card-h">תקציב השלמת הדירה <span style="font-weight:400;font-size:.76rem;color:var(--muted)">ללא רכישת הדירה</span></div>
       <div class="card-b">
         <div class="bud-cap">
           <div><div class="l">תקציב מתוכנן (סכום ההקצאות)</div><div class="v num">${money(s.cap)}</div></div>
@@ -1262,7 +1262,7 @@ function moveCat(id,dir){
 }
 function openBudgetCap(){
   sheet(`
-    <h3>תקציב יעד (עיצוב וריהוט)</h3>
+    <h3>תקציב יעד (השלמת הדירה)</h3>
     <label>המעטפת הכוללת שאסור לחרוג ממנה (₪)</label>
     <input id="capInput" type="number" inputmode="numeric" dir="ltr" value="${data.budgetCap||''}" placeholder="1000000">
     <p class="hint">לא כולל את רכישת הדירה. מומלץ להשאיר בתוכו ~10‑15% כבלת"מ.</p>
