@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
-<!--VITKIN_BUILD=22-->
+<!--VITKIN_BUILD=24-->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
@@ -255,6 +255,8 @@
   .prow-files{display:flex;align-items:center;gap:6px;margin-top:6px;padding-inline-start:27px}
   .pfile-btn{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:.74rem;font-family:inherit;color:var(--muted);cursor:pointer}
   .pfile-btn:active{background:var(--brand-l);color:var(--brand)}
+  .pfile-btn.buy{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:700}
+  .bought-tag{background:var(--green-l);color:#15803d;border-radius:8px;padding:4px 10px;font-size:.74rem;font-weight:700;cursor:pointer}
   .prow-sum{display:flex;justify-content:space-between;align-items:center;background:var(--brand-l);border-radius:10px;padding:10px 13px;margin-top:10px;font-weight:800;font-size:.92rem;color:var(--brand-d)}
   .inst-sum{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 13px;cursor:pointer}
   .inst-sum:active{background:var(--brand-l)}
@@ -1129,7 +1131,7 @@ function renderBudget(){
       <div class="bbar"><i style="width:${barPct}%;background:${barCol}"></i></div>
       <div class="brow-nums">
         <span>מתוכנן <b class="num">${money(r.plan)}</b></span>
-        <span>חוזה <b class="num">${money(r.committed)}</b></span>
+        <span>נרכש בפועל <b class="num">${money(r.committed)}</b></span>
         <span>שולם <b class="num">${money(r.paid)}</b></span>
       </div>
       ${partsSection(r.c)}
@@ -1425,14 +1427,15 @@ function renderInstallments(it){
 }
 
 // ---------- item editor ----------
-function openItem(id,presetCat){
-  const it=id?data.items.find(i=>i.id===id):{id:null,cat:presetCat||data.categories[0].id,desc:'',supplier:'',total:'',paidPct:0,sharePct:null,due:''};
+function openItem(id,presetCat,preset){
+  const it=id?data.items.find(i=>i.id===id):{id:null,cat:presetCat||data.categories[0].id,desc:(preset&&preset.desc)||'',supplier:'',total:(preset&&preset.total)||'',paidPct:0,sharePct:null,due:''};
   const catOpts=data.categories.map(c=>`<option value="${c.id}" ${c.id===it.cat?'selected':''}>${c.icon} ${esc(c.name)}</option>`).join('');
   const calcStyle='background:var(--brand-l);border-radius:12px;padding:12px 14px;margin-top:14px;display:flex;justify-content:space-between;font-weight:700';
   sheet(`
     <h3>${id?'עריכת אבן דרך':'הוספת אבן דרך / תשלום'}</h3>
     <label>קטגוריה / ספק</label>
     <select id="fCat">${catOpts}</select>
+    ${(preset&&preset.partId)?`<p class="hint" style="color:var(--brand);font-weight:600">🛒 רכישה מתוך התקציב · הקטגוריה נבחרה אוטומטית</p>`:''}
     <label>תיאור אבן הדרך</label>
     <input id="fDesc" dir="auto" placeholder="למשל: מקדמה / אישור תוכניות" value="${esc(it.desc||'')}">
     <div id="amtSection"></div>
@@ -1524,8 +1527,15 @@ function openItem(id,presetCat){
       o={...base,sharePct:null,total:($('#fTotal')?+$('#fTotal').value||0:(+it.total||0)),paidPct:($('#fPct')?clampPct($('#fPct').value):clampPct(it.paidPct))};
     }
     if(o.installments&&o.installments.length){const pd=o.installments.filter(p=>p.paid).reduce((a,p)=>a+(+p.amount||0),0);o.paidPct=o.total>0?clampPct(pd/o.total*100):0;}
-    if(id){Object.assign(it,o);}else{data.items.push({id:uid(),...o});}
-    close();save();toast(id?'עודכן':'נוסף');
+    if(id){Object.assign(it,o);}
+    else{ const nid=uid(); data.items.push({id:nid,...o});
+      if(preset&&preset.partId){ // קישור תת-הסעיף בתקציב להוצאה שנוצרה (לפי הקטגוריה שממנה הגיע, גם אם שונתה)
+        const cc=data.categories.find(x=>x.id===(preset.partCat||o.cat));
+        const pp=cc&&(cc.parts||[]).find(x=>x.id===preset.partId);
+        if(pp){pp.done=true;pp.itemId=nid;}
+      }
+    }
+    close();save();toast(id?'עודכן':(preset&&preset.partId?'נרשם כהוצאה ✓':'נוסף'));
   };
   if(id)$('#fDel').onclick=()=>{if(confirm('למחוק את אבן הדרך?')){data.items=data.items.filter(i=>i.id!==id);close();save();toast('נמחק');}};
 }
@@ -1606,11 +1616,15 @@ function openCatEdit(id){
     <input id="cSup" dir="auto" value="${esc(c.supplier||'')}" placeholder="שם הספק / חברה">
     <label>אזור</label>
     <div class="seg" id="zoneSeg">${zoneSeg(c.zone||'in')}</div>
-    <label>תקציב מתוכנן / יעד (₪)</label>
+    <label>תקציב מתוכנן (₪)</label>
     <input id="cPlan" type="number" inputmode="numeric" dir="ltr" value="${c.plan||''}" placeholder="0">
-    <label>עלות כוללת מול הספק (₪)</label>
-    <input id="cBudget" type="number" inputmode="numeric" dir="ltr" value="${c.budget||''}" placeholder="0">
-    <p class="hint">שולם עד כה: <b class="num">${money(ct.paid)}</b> · שויך לאבני דרך: <b class="num">${money(ct.alloc)}</b>${ct.unalloc>0?` · יתרה פתוחה: <b class="num">${money(ct.unalloc)}</b>`:''}</p>
+    <p class="hint">ההערכה שלך לקטגוריה. אפשר לחשב אותה אוטומטית מסך תתי-הסעיפים למטה.</p>
+    <p class="hint" style="margin-top:6px">נרכש בפועל: <b class="num">${money(ct.alloc)}</b> · שולם: <b class="num">${money(ct.paid)}</b></p>
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-size:.85rem;color:var(--muted);font-weight:600">💼 חוזה סגור מול ספק יחיד (אופציונלי)</summary>
+      <input id="cBudget" type="number" inputmode="numeric" dir="ltr" value="${c.budget||''}" placeholder="0" style="margin-top:8px">
+      <p class="hint">מלא רק אם סגרת חוזה אחד עם ספק (מעצבת, מטבח) — מאפשר אבני דרך לפי אחוזים מהחוזה. לקטגוריות של רכישות נפרדות (מוצרי חשמל, ריהוט) — השאר ריק.</p>
+    </details>
     <label style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--ink);cursor:pointer;margin-top:6px"><input id="cInc" type="checkbox" style="width:20px;height:20px" ${c.included?'checked':''}> כלול ברכישה (לא נספר בתקציב)</label>
     <div style="height:1px;background:var(--line);margin:16px 0"></div>
     <label>מה כלול בהוצאה (תתי-סעיפים) — מחיר לכל רכיב, ✓ כשנלקח בחשבון, 📷 לקבלה/אחריות</label>
@@ -1631,7 +1645,7 @@ function openCatEdit(id){
     $('#partNew').value='';$('#partNewPrice').value='';saveQuiet();renderPartsEditor(c);};
   $('#partNew').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#partAddBtn').click();}};
   $('#partNewPrice').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#partAddBtn').click();}};
-  $('#partsApply').onclick=()=>{const s=partsSum(c);if(s<=0){toast('הזן מחירים לתתי-הסעיפים');return;}$('#cBudget').value=s;toast('העלות הכוללת עודכנה ל-'+money(s));};
+  $('#partsApply').onclick=()=>{const s=partsSum(c);if(s<=0){toast('הזן מחירים לתתי-הסעיפים');return;}$('#cPlan').value=s;toast('התקציב המתוכנן עודכן ל-'+money(s));};
   updPartsSum(c);
   $('#cSave').onclick=()=>{
     const name=$('#cName').value.trim();if(!name){toast('נא להזין שם');return;}
@@ -1647,7 +1661,9 @@ function renderPartsEditor(c){
   const el=$('#partsList'); if(!el)return;
   const parts=c.parts||[];
   const sum=partsSum(c);
-  el.innerHTML=(parts.length?parts.map(p=>`
+  el.innerHTML=(parts.length?parts.map(p=>{
+      const li=p.itemId?data.items.find(i=>i.id===p.itemId):null; // ההוצאה המקושרת
+      return `
       <div class="prow ${p.done?'done':''}">
         <div class="prow-top">
           <label style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;margin:0;cursor:pointer">
@@ -1658,17 +1674,30 @@ function renderPartsEditor(c){
           <button class="part-del" data-ed="${p.id}" type="button">×</button>
         </div>
         <div class="prow-files">
+          ${li?`<span class="bought-tag" data-pgo="${li.id}">✓ נרכש · <b class="num">${money(li.total)}</b>${(+li.total)!==(+p.price)&&(+p.price)?` <em style="font-style:normal;color:${(+li.total)>(+p.price)?'var(--red)':'#15803d'}">(${(+li.total)>(+p.price)?'+':''}${money((+li.total)-(+p.price))})</em>`:''} ›</span>`
+            :`<button type="button" class="pfile-btn buy" data-pbuy="${p.id}">🛒 רכשתי</button>`}
           <button type="button" class="pfile-btn" data-pcam="${p.id}">📷 צלם</button>
           <button type="button" class="pfile-btn" data-pfile="${p.id}">📎 קובץ</button>
           ${(p.files&&p.files.length)?`<span class="files-chip" data-pview="${p.id}">📎 ${p.files.length}</span>`:''}
         </div>
-      </div>`).join('')
+      </div>`;}).join('')
     :'<div class="hint">אין רכיבים עדיין — הוסף למטה</div>')
     +(sum>0?`<div class="prow-sum"><span>סך תתי-הסעיפים</span><b class="num">${money(sum)}</b></div>`:'');
   el.querySelectorAll('[data-ec]').forEach(cb=>{cb.onchange=()=>{const p=(c.parts||[]).find(x=>x.id===cb.dataset.ec);if(!p)return;p.done=cb.checked;cb.closest('.prow').classList.toggle('done',cb.checked);saveQuiet();};});
   el.querySelectorAll('[data-eprice]').forEach(inp=>{inp.oninput=()=>{const p=(c.parts||[]).find(x=>x.id===inp.dataset.eprice);if(!p)return;p.price=+inp.value||0;saveQuiet();updPartsSum(c);};});
   el.querySelectorAll('[data-ed]').forEach(b=>{b.onclick=e=>{e.preventDefault();e.stopPropagation();c.parts=(c.parts||[]).filter(x=>x.id!==b.dataset.ed);saveQuiet();renderPartsEditor(c);};});
   el.querySelectorAll('[data-pview]').forEach(b=>{b.onclick=()=>{const p=(c.parts||[]).find(x=>x.id===b.dataset.pview);if(p)openFilesList(p.name,p.files);};});
+  // 🛒 רכשתי — יוצר הוצאה מלאה מראש מתוך תת-הסעיף
+  el.querySelectorAll('[data-pbuy]').forEach(b=>{b.onclick=()=>{
+    const p=(c.parts||[]).find(x=>x.id===b.dataset.pbuy); if(!p)return;
+    if($('#cPlan'))c.plan=+$('#cPlan').value||0;               // שמירת עריכת הקטגוריה לפני מעבר
+    if($('#cBudget'))c.budget=+$('#cBudget').value||0;
+    if($('#cName'))c.name=$('#cName').value.trim()||c.name;
+    if($('#cSup'))c.supplier=$('#cSup').value.trim();
+    saveQuiet();
+    openItem(null,c.id,{desc:p.name,total:p.price||'',partId:p.id,partCat:c.id});
+  };});
+  el.querySelectorAll('[data-pgo]').forEach(b=>{b.onclick=()=>openItem(b.dataset.pgo);}); // מעבר להוצאה הקיימת
   // צילום/העלאת קבלה או אחריות לתת-סעיף
   const pick=(pid,cam)=>{const p=(c.parts||[]).find(x=>x.id===pid);if(!p)return;
     if(!filesRef){toast('צירוף קבצים זמין בגרסת האתר');return;}
