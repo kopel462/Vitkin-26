@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
-<!--VITKIN_BUILD=26-->
+<!--VITKIN_BUILD=27-->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
@@ -721,6 +721,14 @@ function itemStatus(it){
 }
 // סך המחירים של תתי-הסעיפים (רכיבים) בקטגוריה
 function partsSum(c){ return ((c&&c.parts)||[]).reduce((a,p)=>a+(+p.price||0),0); }
+// ניקוי קישורים שבורים: תת-סעיף שמסומן כנרכש אך ההוצאה שלו נמחקה
+function healPartLinks(){
+  let changed=false;
+  (data.categories||[]).forEach(c=>(c.parts||[]).forEach(p=>{
+    if(p.itemId&&!(data.items||[]).some(i=>i.id===p.itemId)){p.itemId=null;p.done=false;changed=true;}
+  }));
+  return changed;
+}
 function catTotals(cid){
   const its=data.items.filter(i=>i.cat===cid);
   let alloc=0,p=0;its.forEach(i=>{alloc+=(+i.total||0);p+=paidOf(i);});
@@ -1227,6 +1235,12 @@ function renderBudget(){
   bb.querySelectorAll('[data-pcheck]').forEach(cb=>cb.onchange=e=>{
     e.stopPropagation();const [cid,pid]=cb.dataset.pcheck.split('|');
     const c=data.categories.find(x=>x.id===cid);const p=c&&c.parts&&c.parts.find(x=>x.id===pid);if(!p)return;
+    if(!cb.checked&&p.itemId){ // ביטול רכישה — מוחק גם את ההוצאה המקושרת
+      const li=data.items.find(i=>i.id===p.itemId);
+      if(li&&!confirm(`לבטל את הרכישה של "${p.name}"?\nההוצאה בסך ${money(li.total)} תימחק גם מההוצאות.`)){cb.checked=true;return;}
+      data.items=data.items.filter(i=>i.id!==p.itemId);
+      p.itemId=null;p.done=false;save();toast('הרכישה בוטלה וההוצאה נמחקה');return;
+    }
     p.done=cb.checked;cb.closest('.part').classList.toggle('done',cb.checked);saveQuiet();
     const cnt=bb.querySelector('[data-pcount="'+cid+'"]');if(cnt)cnt.textContent=c.parts.filter(x=>x.done).length+'/'+c.parts.length;
   });
@@ -1565,7 +1579,10 @@ function openItem(id,presetCat,preset){
     }
     close();save();toast(id?'עודכן':(preset&&preset.partId?'נרשם כהוצאה ✓':'נוסף'));
   };
-  if(id)$('#fDel').onclick=()=>{if(confirm('למחוק את אבן הדרך?')){data.items=data.items.filter(i=>i.id!==id);close();save();toast('נמחק');}};
+  if(id)$('#fDel').onclick=()=>{if(confirm('למחוק את אבן הדרך?')){
+    data.items=data.items.filter(i=>i.id!==id);
+    data.categories.forEach(cc=>(cc.parts||[]).forEach(p=>{if(p.itemId===id){p.itemId=null;p.done=false;}})); // ניקוי הסימון בתקציב
+    close();save();toast('נמחק');}};
 }
 // צירוף קבצים גנרי (לאבן דרך או לקטגוריה) — צילום מהנייד או העלאת קובץ
 function renderItemFiles(it){ renderAttachEditor(it,'#filesSection','קבצים מצורפים (קבלות, אחריות)'); }
@@ -1713,7 +1730,15 @@ function renderPartsEditor(c){
       </div>`;}).join('')
     :'<div class="hint">אין רכיבים עדיין — הוסף למטה</div>')
     +(sum>0?`<div class="prow-sum"><span>סך תתי-הסעיפים</span><b class="num">${money(sum)}</b></div>`:'');
-  el.querySelectorAll('[data-ec]').forEach(cb=>{cb.onchange=()=>{const p=(c.parts||[]).find(x=>x.id===cb.dataset.ec);if(!p)return;p.done=cb.checked;cb.closest('.prow').classList.toggle('done',cb.checked);saveQuiet();};});
+  el.querySelectorAll('[data-ec]').forEach(cb=>{cb.onchange=()=>{
+    const p=(c.parts||[]).find(x=>x.id===cb.dataset.ec);if(!p)return;
+    if(!cb.checked&&p.itemId){ // ביטול רכישה — מוחק גם את ההוצאה המקושרת
+      const li=data.items.find(i=>i.id===p.itemId);
+      if(li&&!confirm(`לבטל את הרכישה של "${p.name}"?\nההוצאה בסך ${money(li.total)} תימחק גם מההוצאות.`)){cb.checked=true;return;}
+      data.items=data.items.filter(i=>i.id!==p.itemId);
+      p.itemId=null;p.done=false;save();renderPartsEditor(c);toast('הרכישה בוטלה וההוצאה נמחקה');return;
+    }
+    p.done=cb.checked;cb.closest('.prow').classList.toggle('done',cb.checked);saveQuiet();};});
   el.querySelectorAll('[data-eprice]').forEach(inp=>{inp.oninput=()=>{const p=(c.parts||[]).find(x=>x.id===inp.dataset.eprice);if(!p)return;p.price=+inp.value||0;saveQuiet();updPartsSum(c);};});
   el.querySelectorAll('[data-ed]').forEach(b=>{b.onclick=e=>{e.preventDefault();e.stopPropagation();c.parts=(c.parts||[]).filter(x=>x.id!==b.dataset.ed);saveQuiet();renderPartsEditor(c);};});
   el.querySelectorAll('[data-pview]').forEach(b=>{b.onclick=()=>{const p=(c.parts||[]).find(x=>x.id===b.dataset.pview);if(p)openFilesList(p.name,p.files);};});
@@ -1838,7 +1863,7 @@ if(VIEW)RO=true;
 try{history.replaceState({v:'overview'},'');}catch(e){}
 initCloud();
 // יישור תאריכי אשראי ל-10 לחודש + סימון אוטומטי של חיובים שעבר מועדם
-try{ const c1=normalizeCreditDates(), c2=autoMarkInstallments(); if((c1||c2)&&!RO)saveQuiet(); }catch(e){}
+try{ const c1=normalizeCreditDates(), c2=autoMarkInstallments(), c3=healPartLinks(); if((c1||c2||c3)&&!RO)saveQuiet(); }catch(e){}
 render();
 if(RO)toast(VIEW?'צפייה בלבד — מתעדכן אוטומטית':'נפתח במצב צפייה בלבד');
 
