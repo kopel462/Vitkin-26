@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
-<!--VITKIN_BUILD=24-->
+<!--VITKIN_BUILD=26-->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
@@ -222,7 +222,8 @@
   .bname{font-weight:600;font-size:.92rem}
   .bchip{font-size:.76rem;font-weight:700;white-space:nowrap}
   .bchip.free{color:var(--green)} .bchip.over{color:var(--red)}
-  .bbar{height:7px;border-radius:20px;background:var(--line);overflow:hidden;margin:8px 0}
+  .bbar{height:7px;border-radius:20px;background:var(--line);overflow:hidden;margin:8px 0;display:flex}
+  .bbar i{display:block;height:100%}
   .bbar > i{display:block;height:100%;border-radius:20px}
   .brow-nums{display:flex;justify-content:space-between;font-size:.76rem;color:var(--muted)}
   .brow-nums b{color:var(--ink)}
@@ -348,6 +349,7 @@
   <!-- EXPENSES -->
   <section class="view" id="v-expenses">
     <input id="expSearch" class="cat-search" type="search" dir="auto" placeholder="🔍 חיפוש קטגוריה...">
+    <div id="expSummary"></div>
     <div id="catList"></div>
     <button class="btn btn-ghost" id="btnAddCat" style="margin-top:14px">＋ הוסף קטגוריה חדשה</button>
   </section>
@@ -776,6 +778,7 @@ function render(){
   $('#heroSplit').innerHTML=`<span>🏠 דירה<b class="num">${money(aptTotal)}</b></span><span>🎨 עיצוב וריהוט (מתוכנן)<b class="num">${money(fitPlan)}</b></span>`;
 
   renderOverviewCards();
+  renderExpSummary();
   renderCats();
   renderCatChart();
   renderNextPay();
@@ -838,6 +841,29 @@ function renderOverviewCards(){
 }
 
 let expFilter='', budFilter='';
+// סיכום ההוצאות מול התקציב — סך מה שכבר נסגר/נרכש ביחס למתוכנן
+function renderExpSummary(){
+  const el=$('#expSummary'); if(!el)return;
+  let plan=0,committed=0,paid=0;
+  data.categories.forEach(c=>{ if(c.id==='apt'||c.included)return;
+    const ct=catTotals(c.id); plan+=(+c.plan||0); committed+=ct.total; paid+=ct.paid; });
+  if(committed<=0&&plan<=0){el.innerHTML='';return;}
+  const pcPaid=plan>0?Math.min(100,paid/plan*100):0;
+  const pcOpen=plan>0?Math.min(100-pcPaid,Math.max(0,(committed-paid)/plan*100)):0;
+  const left=plan-committed;
+  el.innerHTML=`<div class="card"><div class="card-h">התחייבויות מול התקציב</div><div class="card-b">
+    <div class="bud-bar"><i class="p-paid" style="width:${pcPaid}%"></i><i class="p-commit" style="width:${pcOpen}%"></i></div>
+    <div class="bud-legend">
+      <span><i style="background:var(--green)"></i>שולם ${money(paid)}</span>
+      <span><i style="background:var(--amber)"></i>נסגר וטרם שולם ${money(Math.max(0,committed-paid))}</span>
+      <span><i style="background:var(--line)"></i>${left>=0?'טרם נסגר':'חריגה'} ${money(Math.abs(left))}</span>
+    </div>
+    <div class="bud-mini">
+      <div><div class="l">סך שנסגר/נרכש</div><div class="v num">${money(committed)}</div></div>
+      <div><div class="l">מתוך תקציב מתוכנן</div><div class="v num">${money(plan)}</div></div>
+    </div>
+  </div></div>`;
+}
 function renderCats(){
   const el=$('#catList'); el.innerHTML='';
   // מיון בתוך אזור: התחלת לשלם ← למעלה, יש תקציב ולא שולם ← באמצע, ריק ← למטה
@@ -1090,7 +1116,7 @@ function budgetStats(){
     if(c.included){ included.push(c); rows.push({c,plan:0,committed:0,paid:0,inc:true}); return; } // מוצג בתקציב, מסומן, לא נספר
     const p=+c.plan||0;
     plan+=p;committed+=ct.total;paid+=ct.paid;
-    rows.push({c,plan:p,committed:ct.total,paid:ct.paid});
+    rows.push({c,plan:p,committed:ct.total,alloc:ct.alloc,contract:+c.budget||0,paid:ct.paid});
   });
   const cap=plan; // התקציב הכולל = סכום ההקצאות
   return {cap,plan,committed,paid,rows,included,capRemain:cap-committed,unplanned:0};
@@ -1117,21 +1143,23 @@ function renderBudget(){
         ${partsSection(r.c)}
       </div>`;
     }
-    const variance=r.plan-r.committed;
-    const barPct=r.plan>0?Math.min(100,r.committed/r.plan*100):(r.committed>0?100:0);
-    const barCol=r.committed>r.plan&&r.plan>0?'var(--red)':'var(--green)';
+    // בתקציב הכל הערכה: מתוכנן מול מה שכבר נרכש בפועל (מההוצאות)
+    const variance=r.plan-r.alloc;
+    const pcBought=r.plan>0?Math.min(100,r.alloc/r.plan*100):(r.alloc>0?100:0);
+    const pcContract=0;
+    const barCol=r.alloc>r.plan&&r.plan>0?'var(--red)':'var(--green)';
     return `<div class="brow">
       <div class="brow-top">
         <span class="bname" data-bcat="${r.c.id}" style="cursor:pointer">${r.c.icon||'📦'} ${esc(r.c.name)}</span>
         <span style="display:flex;align-items:center;gap:6px">
-          <span class="bchip ${variance<0?'over':'free'}">${variance<0?'חריגה ':'פנוי '}${money(Math.abs(variance))}</span>
+          <span class="bchip ${variance<0?'over':'free'}">${variance<0?'חריגה ':'נותר לרכוש '}${money(Math.abs(variance))}</span>
           ${moveBtns(r)}
         </span>
       </div>
-      <div class="bbar"><i style="width:${barPct}%;background:${barCol}"></i></div>
+      <div class="bbar"><i style="width:${pcBought}%;background:${barCol}"></i><i style="width:${pcContract}%;background:var(--amber)"></i></div>
       <div class="brow-nums">
         <span>מתוכנן <b class="num">${money(r.plan)}</b></span>
-        <span>נרכש בפועל <b class="num">${money(r.committed)}</b></span>
+        <span>נרכש עד כה <b class="num">${money(r.alloc)}</b></span>
         <span>שולם <b class="num">${money(r.paid)}</b></span>
       </div>
       ${partsSection(r.c)}
@@ -1187,7 +1215,7 @@ function renderBudget(){
       </div>
     </div>`;
   const ec=$('#editCap'); if(ec)ec.onclick=openBudgetCap;
-  bb.querySelectorAll('[data-bcat]').forEach(b=>b.onclick=()=>RO?null:openCatEdit(b.dataset.bcat));
+  bb.querySelectorAll('[data-bcat]').forEach(b=>b.onclick=()=>RO?null:openCatEdit(b.dataset.bcat,true)); // מתקציב — ללא חוזים
   bb.querySelectorAll('[data-mv]').forEach(b=>b.onclick=e=>{e.stopPropagation();moveCat(b.dataset.id,b.dataset.mv==='up'?-1:1);});
   bb.querySelectorAll('[data-addcatzone]').forEach(b=>b.onclick=()=>RO?null:openCat(b.dataset.addcatzone));
   bb.querySelectorAll('.lg-commit').forEach(b=>b.onclick=openCommitmentBreakdown);
@@ -1605,7 +1633,7 @@ function openCat(presetZone){
     close();save();toast('נוסף');
   };
 }
-function openCatEdit(id){
+function openCatEdit(id,fromBudget){
   const c=data.categories.find(x=>x.id===id);if(!c)return;
   const ct=catTotals(id);
   sheet(`
@@ -1619,12 +1647,13 @@ function openCatEdit(id){
     <label>תקציב מתוכנן (₪)</label>
     <input id="cPlan" type="number" inputmode="numeric" dir="ltr" value="${c.plan||''}" placeholder="0">
     <p class="hint">ההערכה שלך לקטגוריה. אפשר לחשב אותה אוטומטית מסך תתי-הסעיפים למטה.</p>
-    <p class="hint" style="margin-top:6px">נרכש בפועל: <b class="num">${money(ct.alloc)}</b> · שולם: <b class="num">${money(ct.paid)}</b></p>
-    <details style="margin-top:10px">
-      <summary style="cursor:pointer;font-size:.85rem;color:var(--muted);font-weight:600">💼 חוזה סגור מול ספק יחיד (אופציונלי)</summary>
-      <input id="cBudget" type="number" inputmode="numeric" dir="ltr" value="${c.budget||''}" placeholder="0" style="margin-top:8px">
-      <p class="hint">מלא רק אם סגרת חוזה אחד עם ספק (מעצבת, מטבח) — מאפשר אבני דרך לפי אחוזים מהחוזה. לקטגוריות של רכישות נפרדות (מוצרי חשמל, ריהוט) — השאר ריק.</p>
-    </details>
+    <p class="hint" style="margin-top:6px">נרכש עד כה: <b class="num">${money(ct.alloc)}</b> · שולם: <b class="num">${money(ct.paid)}</b></p>
+    ${fromBudget?`<input id="cBudget" type="hidden" value="${c.budget||''}">`:`
+    <div style="height:1px;background:var(--line);margin:14px 0"></div>
+    <label>💼 עלות כוללת מול הספק — חוזה שנסגר (₪)</label>
+    <input id="cBudget" type="number" inputmode="numeric" dir="ltr" value="${c.budget||''}" placeholder="0">
+    <p class="hint">רק כשנסגר חוזה אמיתי עם ספק יחיד (מעצבת, מטבח) — מאפשר אבני דרך לפי אחוזים. לרכישות נפרדות (מוצרי חשמל, ריהוט) השאר ריק.</p>
+    ${((+c.budget)&&!ct.alloc)?`<p class="hint" style="color:#b45309;font-weight:600">⚠️ רשום כאן חוזה של ${money(c.budget)} אך לא נרשמו רכישות. אם זו רק הערכת תקציב — <button type="button" id="cClearBudget" class="link" style="font-weight:700">נקה את השדה</button>.</p>`:''}`}
     <label style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--ink);cursor:pointer;margin-top:6px"><input id="cInc" type="checkbox" style="width:20px;height:20px" ${c.included?'checked':''}> כלול ברכישה (לא נספר בתקציב)</label>
     <div style="height:1px;background:var(--line);margin:16px 0"></div>
     <label>מה כלול בהוצאה (תתי-סעיפים) — מחיר לכל רכיב, ✓ כשנלקח בחשבון, 📷 לקבלה/אחריות</label>
@@ -1646,6 +1675,7 @@ function openCatEdit(id){
   $('#partNew').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#partAddBtn').click();}};
   $('#partNewPrice').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#partAddBtn').click();}};
   $('#partsApply').onclick=()=>{const s=partsSum(c);if(s<=0){toast('הזן מחירים לתתי-הסעיפים');return;}$('#cPlan').value=s;toast('התקציב המתוכנן עודכן ל-'+money(s));};
+  if($('#cClearBudget'))$('#cClearBudget').onclick=()=>{const v=+$('#cBudget').value||0;if(!(+$('#cPlan').value))$('#cPlan').value=v;$('#cBudget').value='';toast('החוזה נוקה — הסכום נשאר בתקציב המתוכנן');};
   updPartsSum(c);
   $('#cSave').onclick=()=>{
     const name=$('#cName').value.trim();if(!name){toast('נא להזין שם');return;}
