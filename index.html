@@ -724,6 +724,16 @@ function itemStatus(it){
 }
 // סך המחירים של תתי-הסעיפים (רכיבים) בקטגוריה
 function partsSum(c){ return ((c&&c.parts)||[]).reduce((a,p)=>a+(+p.price||0),0); }
+// סנכרון אוטומטי: שדה "תקציב מתוכנן" בעריכת קטגוריה עוקב אחרי סך תתי-הסעיפים,
+// כל עוד המשתמש לא קבע ידנית סכום אחר (שאינו 0 ואינו שווה לסך הקודם).
+let _planSyncLast=0;
+function syncCatPlan(c){
+  const inp=document.getElementById('cPlan'); if(!inp)return;
+  const s=partsSum(c);
+  const cur=+inp.value||0;
+  if(cur===0 || cur===_planSyncLast){ inp.value = s>0 ? s : ''; }
+  _planSyncLast = s;
+}
 // ניקוי קישורים שבורים: תת-סעיף שמסומן כנרכש אך ההוצאה שלו נמחקה
 function healPartLinks(){
   let changed=false;
@@ -1680,7 +1690,7 @@ function openCatEdit(id,fromBudget){
     <div id="partsList"></div>
     <div class="part-add"><input id="partNew" dir="auto" placeholder="הוסף רכיב..."><input id="partNewPrice" type="number" inputmode="numeric" dir="ltr" placeholder="₪" style="max-width:90px"><button id="partAddBtn" type="button">＋</button></div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
-      <button type="button" class="btn btn-ghost btn-sm" id="partsApply" style="width:auto">⇧ החל סך התתי-סעיפים כעלות כוללת</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="partsApply" style="width:auto">⇧ השתמש בסך תתי-הסעיפים כתקציב מתוכנן</button>
       <span class="hint" id="partsSyncHint" style="margin:0"></span>
     </div>
     <div style="height:1px;background:var(--line);margin:16px 0"></div>
@@ -1691,12 +1701,13 @@ function openCatEdit(id,fromBudget){
   renderAttachEditor(c,'#catFiles','חוזה/הסכם ומסמכים');
   $('#partAddBtn').onclick=()=>{const v=$('#partNew').value.trim();if(!v)return;
     c.parts=c.parts||[];c.parts.push({id:uid(),name:v,price:+$('#partNewPrice').value||0,done:false,files:[]});
-    $('#partNew').value='';$('#partNewPrice').value='';saveQuiet();renderPartsEditor(c);};
+    $('#partNew').value='';$('#partNewPrice').value='';saveQuiet();renderPartsEditor(c);syncCatPlan(c);};
   $('#partNew').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#partAddBtn').click();}};
   $('#partNewPrice').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#partAddBtn').click();}};
-  $('#partsApply').onclick=()=>{const s=partsSum(c);if(s<=0){toast('הזן מחירים לתתי-הסעיפים');return;}$('#cPlan').value=s;toast('התקציב המתוכנן עודכן ל-'+money(s));};
+  $('#partsApply').onclick=()=>{const s=partsSum(c);if(s<=0){toast('הזן מחירים לתתי-הסעיפים');return;}$('#cPlan').value=s;_planSyncLast=s;toast('התקציב המתוכנן עודכן ל-'+money(s));};
   if($('#cClearBudget'))$('#cClearBudget').onclick=()=>{const v=+$('#cBudget').value||0;if(!(+$('#cPlan').value))$('#cPlan').value=v;$('#cBudget').value='';toast('החוזה נוקה — הסכום נשאר בתקציב המתוכנן');};
   updPartsSum(c);
+  _planSyncLast=partsSum(c);syncCatPlan(c);
   $('#cSave').onclick=()=>{
     const name=$('#cName').value.trim();if(!name){toast('נא להזין שם');return;}
     c.name=name;c.supplier=$('#cSup').value.trim();c.plan=+$('#cPlan').value||0;c.budget=+$('#cBudget').value||0;c.included=$('#cInc').checked;c.zone=pickedZone(c.zone||'in');
@@ -1740,9 +1751,9 @@ function renderPartsEditor(c){
       p.itemId=null;p.done=false;save();renderPartsEditor(c);toast('הרכישה בוטלה וההוצאה נמחקה');return;
     }
     p.done=cb.checked;cb.closest('.prow').classList.toggle('done',cb.checked);saveQuiet();};});
-  el.querySelectorAll('[data-eprice]').forEach(inp=>{inp.oninput=()=>{const p=(c.parts||[]).find(x=>x.id===inp.dataset.eprice);if(!p)return;p.price=+inp.value||0;saveQuiet();updPartsSum(c);};});
+  el.querySelectorAll('[data-eprice]').forEach(inp=>{inp.oninput=()=>{const p=(c.parts||[]).find(x=>x.id===inp.dataset.eprice);if(!p)return;p.price=+inp.value||0;saveQuiet();updPartsSum(c);syncCatPlan(c);};});
   el.querySelectorAll('[data-ename]').forEach(inp=>{inp.oninput=()=>{const p=(c.parts||[]).find(x=>x.id===inp.dataset.ename);if(!p)return;p.name=inp.value;saveQuiet();};}); // עריכת שם הרכיב בלחיצה
-  el.querySelectorAll('[data-ed]').forEach(b=>{b.onclick=e=>{e.preventDefault();e.stopPropagation();c.parts=(c.parts||[]).filter(x=>x.id!==b.dataset.ed);saveQuiet();renderPartsEditor(c);};});
+  el.querySelectorAll('[data-ed]').forEach(b=>{b.onclick=e=>{e.preventDefault();e.stopPropagation();c.parts=(c.parts||[]).filter(x=>x.id!==b.dataset.ed);saveQuiet();renderPartsEditor(c);syncCatPlan(c);};});
   el.querySelectorAll('[data-pview]').forEach(b=>{b.onclick=()=>{const p=(c.parts||[]).find(x=>x.id===b.dataset.pview);if(p)openFilesList(p.name,p.files);};});
   // 🛒 רכשתי — יוצר הוצאה מלאה מראש מתוך תת-הסעיף
   el.querySelectorAll('[data-pbuy]').forEach(b=>{b.onclick=()=>{
@@ -1771,7 +1782,7 @@ function updPartsSum(c){ const el=$('#partsList');if(!el)return;
   const s=partsSum(c);const box=el.querySelector('.prow-sum');
   if(box){ if(s>0)box.querySelector('b').textContent=money(s); else box.remove(); }
   else if(s>0)el.insertAdjacentHTML('beforeend',`<div class="prow-sum"><span>סך תתי-הסעיפים</span><b class="num">${money(s)}</b></div>`);
-  const pb=$('#cBudget'); const hint=$('#partsSyncHint'); if(hint)hint.textContent=s>0?`סך תתי-הסעיפים: ${money(s)} — לחץ "החל" כדי לעדכן את העלות הכוללת`:'';
+  const pb=$('#cBudget'); const hint=$('#partsSyncHint'); if(hint)hint.textContent=s>0?`סך תתי-הסעיפים: ${money(s)} — מוזן אוטומטית כתקציב המתוכנן`:'';
 }
 
 // ---------- share / export ----------
